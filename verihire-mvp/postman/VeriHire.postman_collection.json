@@ -1,0 +1,110 @@
+{
+  "info": {
+    "name": "VeriHire",
+    "description": "Manual test requests for both VeriHire services, per the tools doc's mention of Postman as the way to test each endpoint before wiring the frontend up.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "ai_service_url", "value": "http://localhost:8001" },
+    { "key": "backend_url", "value": "http://localhost:8000" },
+    { "key": "candidate_id", "value": "" },
+    { "key": "job_id", "value": "job-001" }
+  ],
+  "item": [
+    {
+      "name": "AI Service",
+      "item": [
+        {
+          "name": "Health check",
+          "request": { "method": "GET", "url": "{{ai_service_url}}/health" }
+        },
+        {
+          "name": "Extract CV",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{ai_service_url}}/extract",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cv_text\": \"4 years of Python experience, PostgreSQL, AWS Certified Solutions Architect, B.Sc. Computer Science\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Parse job description",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{ai_service_url}}/parse-job",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Looking for someone with 3+ years Python, PostgreSQL, and AWS experience. Bachelor's degree required.\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Backend API",
+      "item": [
+        {
+          "name": "Health check",
+          "request": { "method": "GET", "url": "{{backend_url}}/health" }
+        },
+        {
+          "name": "List jobs",
+          "request": { "method": "GET", "url": "{{backend_url}}/jobs" }
+        },
+        {
+          "name": "Create job",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{backend_url}}/jobs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Backend Engineer\",\n  \"company_name\": \"Example Technologies\",\n  \"domain\": \"example-technologies.com\",\n  \"salary\": \"$120k/year\",\n  \"description\": \"3+ years Python, PostgreSQL, AWS. Bachelor's degree or equivalent.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Verify external employer",
+          "request": {
+            "method": "POST",
+            "url": "{{backend_url}}/jobs/verify-external?company_name=UnknownCompany123&domain=unknowncompany123.biz"
+          }
+        },
+        {
+          "name": "Register candidate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{backend_url}}/candidates",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cv_text\": \"4 years Python, PostgreSQL, AWS Certified, B.Sc. Computer Science\",\n  \"name\": \"Jordan Ellis\",\n  \"email\": \"jordan@example.com\",\n  \"phone\": \"+1-555-0100\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Apply to job",
+          "request": {
+            "method": "POST",
+            "url": "{{backend_url}}/candidates/{{candidate_id}}/apply/{{job_id}}"
+          }
+        },
+        {
+          "name": "Disclose (full_disclosure)",
+          "request": {
+            "method": "POST",
+            "url": "{{backend_url}}/candidates/{{candidate_id}}/disclose/{{job_id}}?level=full_disclosure"
+          }
+        },
+        {
+          "name": "Employer view of candidates for a job",
+          "request": { "method": "GET", "url": "{{backend_url}}/employers/jobs/{{job_id}}/candidates" }
+        }
+      ]
+    }
+  ]
+}

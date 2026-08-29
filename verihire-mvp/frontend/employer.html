@@ -1,0 +1,194 @@
+<!doctype html>
+<!--
+What this file does
+--------------------
+The employer-facing UI: same idea as candidate.html - a single static
+page with no build step, calling the backend's REST API with fetch().
+Open it from disk or via `python3 -m http.server` from inside frontend/,
+with the backend running on http://localhost:8000.
+
+Flow it implements:
+  1. Post a job (free-text description) -> POST /jobs, which runs AI #2
+     (job requirement parsing) and the mocked employer-verification check,
+     and shows the resulting verification badges immediately.
+  2. Check a suspicious employer/domain without posting a job -> POST
+     /jobs/verify-external (the "is this recruiter even real" check).
+  3. Pick one of your jobs and see every candidate who applied -> GET
+     /employers/jobs/{job_id}/candidates - graded tier + checklist per
+     candidate, contact info only for whoever explicitly disclosed it.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>VeriHire — Employer</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #2a2f3a; --text: #e8eaed;
+    --muted: #9aa1ac; --accent: #93c5fd; --bad: #f87171; --warn: #fbbf24; --good: #6ee7b7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  main { max-width: 780px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  section h2 { margin: 0 0 12px; font-size: 15px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea, select { width: 100%; background: #0c0e12; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 10px; font: inherit; }
+  textarea { min-height: 100px; resize: vertical; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  button { background: var(--accent); color: #071627; border: none; border-radius: 6px; padding: 9px 14px; font-weight: 600; cursor: pointer; margin-top: 12px; }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin: 2px 4px 2px 0; }
+  .badge.ok { background: rgba(110,231,183,0.15); color: var(--good); }
+  .badge.bad { background: rgba(248,113,113,0.15); color: var(--bad); }
+  .status { font-size: 13px; color: var(--muted); margin-top: 8px; white-space: pre-wrap; }
+  .candidate-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+  .tier { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 13px; }
+  .tier.excellent, .tier.good { color: var(--good); }
+  .tier.average { color: var(--warn); }
+  .tier.poor { color: var(--bad); }
+  ul.criteria { list-style: none; padding: 0; margin: 8px 0 0; }
+  ul.criteria li { padding: 3px 0; font-size: 13px; display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border); }
+  .ref { font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>VeriHire — Employer</h1>
+  <p>See who's qualified before anyone hands over a CV.</p>
+</header>
+
+<main>
+
+  <section>
+    <h2>0. Backend location</h2>
+    <label for="backendUrl">Backend API URL</label>
+    <input id="backendUrl" value="http://localhost:8000" />
+  </section>
+
+  <section>
+    <h2>Quick check: is this employer/domain legitimate?</h2>
+    <div class="row">
+      <div><label for="checkCompany">Company name</label><input id="checkCompany" placeholder="UnknownCompany123" /></div>
+      <div><label for="checkDomain">Domain</label><input id="checkDomain" placeholder="unknowncompany123.biz" /></div>
+    </div>
+    <button class="secondary" id="checkBtn">Check</button>
+    <div class="status" id="checkStatus"></div>
+  </section>
+
+  <section>
+    <h2>1. Post a job</h2>
+    <div class="row">
+      <div><label for="title">Title</label><input id="title" placeholder="Backend Engineer" /></div>
+      <div><label for="salary">Salary</label><input id="salary" placeholder="$120k/year" /></div>
+    </div>
+    <div class="row">
+      <div><label for="companyName">Company name</label><input id="companyName" placeholder="Example Technologies" /></div>
+      <div><label for="domain">Domain</label><input id="domain" placeholder="example-technologies.com" /></div>
+    </div>
+    <label for="description">Job description (free text — AI turns this into structured requirements)</label>
+    <textarea id="description" placeholder="3+ years Python, PostgreSQL, AWS experience. Bachelor's degree or equivalent."></textarea>
+    <button id="postJobBtn">Post job</button>
+    <div class="status" id="postJobStatus"></div>
+  </section>
+
+  <section>
+    <h2>2. Candidates for a job</h2>
+    <label for="jobSelect">Select a job</label>
+    <select id="jobSelect"></select>
+    <button class="secondary" id="loadCandidatesBtn">Load candidates</button>
+    <div id="candidatesList" style="margin-top:12px;"></div>
+  </section>
+
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const backendUrl = () => $('backendUrl').value.replace(/\/$/, '');
+
+  $('checkBtn').addEventListener('click', async () => {
+    const company_name = $('checkCompany').value.trim();
+    const domain = $('checkDomain').value.trim();
+    if (!company_name || !domain) return;
+    $('checkStatus').textContent = 'Checking...';
+    try {
+      const url = `${backendUrl()}/jobs/verify-external?company_name=${encodeURIComponent(company_name)}&domain=${encodeURIComponent(domain)}`;
+      const resp = await fetch(url, { method: 'POST' });
+      const v = await resp.json();
+      $('checkStatus').innerHTML = `
+        <span class="badge ${v.company_identity_verified ? 'ok' : 'bad'}">Identity ${v.company_identity_verified ? 'verified' : 'unverified'}</span>
+        <span class="badge ${v.domain_ownership_verified ? 'ok' : 'bad'}">Domain ${v.domain_ownership_verified ? 'verified' : 'unverified'}</span>
+        <span class="badge ${v.job_posting_authorized ? 'ok' : 'bad'}">Posting ${v.job_posting_authorized ? 'authorized' : 'unauthorized'}</span>
+        <span class="badge ${v.recruiter_authorized ? 'ok' : 'bad'}">Recruiter ${v.recruiter_authorized ? 'verified' : 'unverified'}</span>`;
+    } catch (err) {
+      $('checkStatus').textContent = 'Error: ' + err.message;
+    }
+  });
+
+  $('postJobBtn').addEventListener('click', async () => {
+    const payload = {
+      title: $('title').value,
+      company_name: $('companyName').value,
+      domain: $('domain').value,
+      salary: $('salary').value || null,
+      description: $('description').value,
+    };
+    if (!payload.title || !payload.company_name || !payload.domain || !payload.description) {
+      $('postJobStatus').textContent = 'Fill in title, company, domain and description.';
+      return;
+    }
+    $('postJobStatus').textContent = 'Parsing requirements with AI + checking employer...';
+    try {
+      const resp = await fetch(`${backendUrl()}/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const job = await resp.json();
+      $('postJobStatus').textContent = `Posted "${job.title}" (job_id: ${job.job_id}). Requirements: ${JSON.stringify(job.requirements)}`;
+      await loadJobOptions();
+    } catch (err) {
+      $('postJobStatus').textContent = 'Error: ' + err.message;
+    }
+  });
+
+  async function loadJobOptions() {
+    const select = $('jobSelect');
+    const resp = await fetch(`${backendUrl()}/jobs`);
+    const jobs = await resp.json();
+    select.innerHTML = jobs.map((j) => `<option value="${j.job_id}">${j.title} — ${j.company_name} (${j.job_id})</option>`).join('');
+  }
+
+  $('loadCandidatesBtn').addEventListener('click', async () => {
+    const jobId = $('jobSelect').value;
+    const list = $('candidatesList');
+    if (!jobId) return;
+    list.textContent = 'Loading...';
+    try {
+      const resp = await fetch(`${backendUrl()}/employers/jobs/${jobId}/candidates`);
+      const apps = await resp.json();
+      if (apps.length === 0) { list.textContent = 'No applicants yet.'; return; }
+      list.innerHTML = apps.map((app) => `
+        <div class="candidate-card">
+          <div><span class="ref">${app.candidate_ref}</span> — <span class="tier ${app.match.tier}">${app.match.tier}</span> (${Math.round(app.match.score * 100)}%)</div>
+          <ul class="criteria">${app.match.criteria.map((c) => `<li><span>${c.criterion} (${c.required})</span><span>${c.satisfied ? '✓' : '✗'}</span></li>`).join('')}</ul>
+          <div class="status">Midnight proof: ${app.proof.verified ? 'verified ✓' : 'not verified'}</div>
+          ${app.contact ? `<div class="status">Contact: ${app.contact.name} · ${app.contact.email} · ${app.contact.phone}</div>` : `<div class="status">Contact info not yet disclosed by this candidate.</div>`}
+        </div>
+      `).join('');
+    } catch (err) {
+      list.textContent = 'Error: ' + err.message;
+    }
+  });
+
+  loadJobOptions();
+})();
+</script>
+</body>
+</html>

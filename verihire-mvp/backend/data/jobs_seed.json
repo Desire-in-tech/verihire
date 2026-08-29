@@ -1,0 +1,65 @@
+[
+  {
+    "job_id": "job-001",
+    "title": "Backend Engineer",
+    "company_name": "Example Technologies",
+    "domain": "example-technologies.com",
+    "salary": "$120k/year",
+    "description": "Looking for a Backend Engineer with 3+ years of Python experience, solid PostgreSQL skills, and hands-on AWS experience. AWS certification preferred. Bachelor's degree or equivalent experience.",
+    "requirements": {
+      "required_skills": {"python": 3, "postgresql": 0, "aws": 0, "backend": 0},
+      "required_certifications": ["aws_certified"],
+      "min_education_level": "bachelors"
+    },
+    "verification": {
+      "company_name": "Example Technologies",
+      "domain": "example-technologies.com",
+      "company_identity_verified": true,
+      "domain_ownership_verified": true,
+      "job_posting_authorized": true,
+      "recruiter_authorized": true
+    }
+  },
+  {
+    "job_id": "job-002",
+    "title": "Senior Backend Engineer",
+    "company_name": "Northwind Systems",
+    "domain": "northwind-systems.com",
+    "salary": "$140k/year",
+    "description": "Senior backend role. Requires 5+ years Python, strong PostgreSQL background, and Docker/Kubernetes experience. Master's degree preferred but not required.",
+    "requirements": {
+      "required_skills": {"python": 5, "postgresql": 2, "docker": 0, "kubernetes": 0},
+      "required_certifications": [],
+      "min_education_level": null
+    },
+    "verification": {
+      "company_name": "Northwind Systems",
+      "domain": "northwind-systems.com",
+      "company_identity_verified": true,
+      "domain_ownership_verified": true,
+      "job_posting_authorized": true,
+      "recruiter_authorized": true
+    }
+  },
+  {
+    "job_id": "job-003",
+    "title": "Senior Backend Developer — URGENT, $5,000/month",
+    "company_name": "UnknownCompany123",
+    "domain": "unknowncompany123.biz",
+    "salary": "$5,000/month",
+    "description": "URGENT hire! Send your CV, ID and passport immediately to secure this role. Backend development experience needed.",
+    "requirements": {
+      "required_skills": {"backend": 0},
+      "required_certifications": [],
+      "min_education_level": null
+    },
+    "verification": {
+      "company_name": "UnknownCompany123",
+      "domain": "unknowncompany123.biz",
+      "company_identity_verified": false,
+      "domain_ownership_verified": false,
+      "job_posting_authorized": false,
+      "recruiter_authorized": false
+    }
+  }
+]

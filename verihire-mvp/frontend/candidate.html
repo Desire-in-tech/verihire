@@ -1,0 +1,235 @@
+<!doctype html>
+<!--
+What this file does
+--------------------
+The candidate-facing UI: a single static HTML page, no build step, no
+framework - it just calls the backend's REST API directly with fetch().
+This is meant to be opened straight from disk (or served with
+`python3 -m http.server` from inside frontend/) while the backend is
+running on http://localhost:8000 (CORS is already open for this in
+backend/app/main.py).
+
+Flow it implements, matching the demo scenes in the pitch doc:
+  1. Paste/upload a CV -> POST /candidates -> get back an anonymized ref
+     (e.g. "PX-104"). Name/email/phone are sent but never shown back here.
+  2. Browse jobs -> GET /jobs, with a "check this employer" button hitting
+     POST /jobs/verify-external for anything that looks suspicious.
+  3. Apply to a job -> POST /candidates/{id}/apply/{job_id} -> shows the
+     graded result (excellent/good/average/poor) and per-criterion
+     checklist an employer would see. Still no CV, no PII sent onward.
+  4. Optionally disclose contact info for one specific job -> POST
+     /candidates/{id}/disclose/{job_id}.
+
+All state (candidate_id, anonymized_ref) is kept in a plain JS variable
+for the lifetime of the page - reload and you register again. That's
+fine for a hackathon demo; a real version would persist a session token.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>VeriHire — Candidate</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #2a2f3a; --text: #e8eaed;
+    --muted: #9aa1ac; --accent: #6ee7b7; --bad: #f87171; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+  section h2 { margin: 0 0 12px; font-size: 15px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea { width: 100%; background: #0c0e12; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 10px; font: inherit; }
+  textarea { min-height: 140px; resize: vertical; font-family: ui-monospace, monospace; font-size: 13px; }
+  button { background: var(--accent); color: #06231a; border: none; border-radius: 6px; padding: 9px 14px; font-weight: 600; cursor: pointer; margin-top: 12px; }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .job { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+  .job-title { font-weight: 600; }
+  .job-meta { color: var(--muted); font-size: 13px; margin: 2px 0 8px; }
+  .badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin: 2px 4px 2px 0; }
+  .badge.ok { background: rgba(110,231,183,0.15); color: var(--accent); }
+  .badge.bad { background: rgba(248,113,113,0.15); color: var(--bad); }
+  .tier { font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+  .tier.excellent, .tier.good { color: var(--accent); }
+  .tier.average { color: var(--warn); }
+  .tier.poor { color: var(--bad); }
+  ul.criteria { list-style: none; padding: 0; margin: 10px 0 0; }
+  ul.criteria li { padding: 4px 0; font-size: 13px; display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border); }
+  .status { font-size: 13px; color: var(--muted); margin-top: 8px; white-space: pre-wrap; }
+  .ref { font-family: ui-monospace, monospace; color: var(--accent); }
+  #candidateStatus { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>VeriHire — Candidate</h1>
+  <p>Prove you're qualified without handing over your CV.</p>
+</header>
+
+<main>
+
+  <section id="setup">
+    <h2>0. Backend location</h2>
+    <label for="backendUrl">Backend API URL</label>
+    <input id="backendUrl" value="http://localhost:8000" />
+  </section>
+
+  <section id="submitCvSection">
+    <h2>1. Submit your CV</h2>
+    <label for="cvText">CV text</label>
+    <textarea id="cvText" placeholder="Paste your CV text here, or load the sample file..."></textarea>
+    <label for="cvFile">...or load a .txt file</label>
+    <input type="file" id="cvFile" accept=".txt" />
+
+    <label for="name">Name (kept private until you choose to disclose it)</label>
+    <input id="name" placeholder="Jordan Ellis" />
+    <label for="email">Email</label>
+    <input id="email" placeholder="jordan@example.com" />
+    <label for="phone">Phone</label>
+    <input id="phone" placeholder="+1-555-0100" />
+
+    <button id="submitCvBtn">Submit CV</button>
+    <div class="status" id="candidateStatus">Not registered yet.</div>
+  </section>
+
+  <section id="jobsSection">
+    <h2>2. Jobs</h2>
+    <button class="secondary" id="refreshJobsBtn">Refresh job list</button>
+    <div id="jobsList" style="margin-top:12px;"></div>
+  </section>
+
+  <section id="resultSection" style="display:none;">
+    <h2>3. Result</h2>
+    <div id="resultBody"></div>
+  </section>
+
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  let candidateId = null;
+  let anonymizedRef = null;
+  let lastAppliedJobId = null;
+
+  const backendUrl = () => $('backendUrl').value.replace(/\/$/, '');
+
+  $('cvFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    $('cvText').value = await file.text();
+  });
+
+  $('submitCvBtn').addEventListener('click', async () => {
+    const cv_text = $('cvText').value.trim();
+    if (!cv_text) { $('candidateStatus').textContent = 'Paste some CV text first.'; return; }
+    $('submitCvBtn').disabled = true;
+    $('candidateStatus').textContent = 'Submitting to AI extraction...';
+    try {
+      const resp = await fetch(`${backendUrl()}/candidates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cv_text,
+          name: $('name').value || null,
+          email: $('email').value || null,
+          phone: $('phone').value || null,
+        }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const data = await resp.json();
+      candidateId = data.candidate_id;
+      anonymizedRef = data.anonymized_ref;
+      $('candidateStatus').innerHTML = `Registered. Your anonymized reference is <span class="ref">${anonymizedRef}</span>. Your CV and contact info stay private.`;
+    } catch (err) {
+      $('candidateStatus').textContent = 'Error: ' + err.message;
+    } finally {
+      $('submitCvBtn').disabled = false;
+    }
+  });
+
+  async function loadJobs() {
+    const list = $('jobsList');
+    list.textContent = 'Loading...';
+    try {
+      const resp = await fetch(`${backendUrl()}/jobs`);
+      const jobs = await resp.json();
+      list.innerHTML = '';
+      for (const job of jobs) {
+        const div = document.createElement('div');
+        div.className = 'job';
+        const v = job.verification;
+        div.innerHTML = `
+          <div class="job-title">${job.title} — ${job.company_name}</div>
+          <div class="job-meta">${job.salary || ''} · ${job.domain}</div>
+          <span class="badge ${v.company_identity_verified ? 'ok' : 'bad'}">Company ${v.company_identity_verified ? 'verified' : 'unverified'}</span>
+          <span class="badge ${v.domain_ownership_verified ? 'ok' : 'bad'}">Domain ${v.domain_ownership_verified ? 'verified' : 'unverified'}</span>
+          <span class="badge ${v.job_posting_authorized ? 'ok' : 'bad'}">Job ${v.job_posting_authorized ? 'authorized' : 'unauthorized'}</span>
+          <span class="badge ${v.recruiter_authorized ? 'ok' : 'bad'}">Recruiter ${v.recruiter_authorized ? 'verified' : 'unverified'}</span>
+          <div style="margin-top:10px;">
+            <button data-apply="${job.job_id}" ${(!v.company_identity_verified || !v.domain_ownership_verified) ? 'class="secondary"' : ''}>Apply privately</button>
+          </div>
+        `;
+        list.appendChild(div);
+      }
+      list.querySelectorAll('[data-apply]').forEach((btn) => {
+        btn.addEventListener('click', () => applyToJob(btn.getAttribute('data-apply')));
+      });
+    } catch (err) {
+      list.textContent = 'Error loading jobs: ' + err.message;
+    }
+  }
+
+  async function applyToJob(jobId) {
+    if (!candidateId) { alert('Submit your CV first.'); return; }
+    lastAppliedJobId = jobId;
+    const resultSection = $('resultSection');
+    const body = $('resultBody');
+    resultSection.style.display = 'block';
+    body.textContent = 'Running rules engine + Midnight proof...';
+    try {
+      const resp = await fetch(`${backendUrl()}/candidates/${candidateId}/apply/${jobId}`, { method: 'POST' });
+      if (!resp.ok) throw new Error(await resp.text());
+      const app = await resp.json();
+      renderResult(app);
+    } catch (err) {
+      body.textContent = 'Error: ' + err.message;
+    }
+  }
+
+  function renderResult(app) {
+    const body = $('resultBody');
+    const criteriaHtml = app.match.criteria.map((c) => `
+      <li><span>${c.criterion} (${c.required})</span><span>${c.satisfied ? '✓' : '✗'}</span></li>
+    `).join('');
+    body.innerHTML = `
+      <div>Employer sees candidate <span class="ref">${app.candidate_ref}</span> as:</div>
+      <div class="tier ${app.match.tier}">${app.match.tier} (${Math.round(app.match.score * 100)}%)</div>
+      <ul class="criteria">${criteriaHtml}</ul>
+      <div class="status">Midnight proof: ${app.proof.verified ? 'verified ✓' : 'not verified'} — proof_id ${app.proof.proof_id}</div>
+      ${app.disclosure_level === 'full_disclosure'
+        ? `<div class="status">Contact info disclosed: ${JSON.stringify(app.contact)}</div>`
+        : `<button id="discloseBtn">Employer wants to interview — disclose my contact info</button>`}
+    `;
+    const discloseBtn = document.getElementById('discloseBtn');
+    if (discloseBtn) discloseBtn.addEventListener('click', disclose);
+  }
+
+  async function disclose() {
+    const resp = await fetch(`${backendUrl()}/candidates/${candidateId}/disclose/${lastAppliedJobId}?level=full_disclosure`, { method: 'POST' });
+    if (!resp.ok) { alert('Error: ' + (await resp.text())); return; }
+    const app = await resp.json();
+    renderResult(app);
+  }
+
+  $('refreshJobsBtn').addEventListener('click', loadJobs);
+  loadJobs();
+})();
+</script>
+</body>
+</html>
