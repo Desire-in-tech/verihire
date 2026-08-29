@@ -1,0 +1,49 @@
+{
+  "jobs": [
+    {
+      "job_id": "job-001",
+      "title": "Senior Python Developer",
+      "company": "TechCorp Inc",
+      "description": "Looking for an experienced Python developer with strong backend skills and expertise in FastAPI frameworks",
+      "criteria": {
+        "required_skills": ["Python", "FastAPI", "PostgreSQL", "Docker"],
+        "min_years_experience": 5,
+        "education_level": "Bachelor's in Computer Science or equivalent",
+        "languages": ["English"],
+        "certifications": []
+      },
+      "verification_status": "verified",
+      "is_active": true
+    },
+    {
+      "job_id": "job-002",
+      "title": "Full Stack JavaScript Developer",
+      "company": "StartupXYZ",
+      "description": "Seeking a full-stack developer proficient in React, Node.js, and cloud deployment",
+      "criteria": {
+        "required_skills": ["JavaScript", "React", "Node.js", "AWS"],
+        "min_years_experience": 3,
+        "education_level": "Bachelor's in Computer Science or Self-taught with portfolio",
+        "languages": ["English"],
+        "certifications": ["AWS Solutions Architect Associate"]
+      },
+      "verification_status": "verified",
+      "is_active": true
+    },
+    {
+      "job_id": "job-003",
+      "title": "Data Science Engineer",
+      "company": "DataInsights LLC",
+      "description": "Join our data science team working on machine learning pipelines and data analysis",
+      "criteria": {
+        "required_skills": ["Python", "Machine Learning", "Statistics", "Spark", "SQL"],
+        "min_years_experience": 4,
+        "education_level": "Master's in Data Science, Statistics, or related field",
+        "languages": ["English"],
+        "certifications": ["Google Professional Data Engineer"]
+      },
+      "verification_status": "unverified",
+      "is_active": true
+    }
+  ]
+}
