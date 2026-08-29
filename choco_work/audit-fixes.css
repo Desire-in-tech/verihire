@@ -1,0 +1,62 @@
+.job-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0;
+}
+
+.job-foot {
+  justify-content: flex-end;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .62);
+}
+
+.modal-card {
+  width: min(460px, 100%);
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.modal-card h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+[data-scroll] {
+  cursor: pointer;
+}
+
+.filter-options {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 24px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.filter-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-options input {
+  accent-color: var(--cyan);
+}
