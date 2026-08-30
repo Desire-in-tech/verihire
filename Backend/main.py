@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from api.cv_processing import router as cv_router
-from api.employer_dashboard import router as employer_router
+from Backend.api.cv_processing import router as cv_router
+from Backend.api.employer_dashboard import router as employer_router
 
 app = FastAPI(
     title="VeriHire API Layer",

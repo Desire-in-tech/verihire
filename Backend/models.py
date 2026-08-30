@@ -7,9 +7,11 @@ class VerificationStatus(str, Enum):
     UNVERIFIED = "unverified"
 
 class JobCriteria(BaseModel):
-    """Criteria that a job requires"""
-    required_skills: List[str]
-    min_years_experience: int
+    """Criteria that a job requires."""
+    required_skills: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Required skill -> minimum years of experience. 0 means skill must simply be present."
+    )
     education_level: Optional[str] = None
     languages: List[str] = Field(default_factory=list)
     certifications: List[str] = Field(default_factory=list)
@@ -30,11 +32,14 @@ class PDFUploadRequest(BaseModel):
     job_id: Optional[str] = None
 
 class ExtractedCVData(BaseModel):
-    """Extracted CV data from Person B service"""
-    skills: List[str]
-    years_experience: int
+    """
+    Structured CV data returned by the AI extraction service.
+
+    Skills are represented as:
+        skill_name -> years of experience
+    """
+    skills: Dict[str, int] = Field(default_factory=dict)
     education_level: Optional[str] = None
-    languages: List[str] = Field(default_factory=list)
     certifications: List[str] = Field(default_factory=list)
     summary: Optional[str] = None
 

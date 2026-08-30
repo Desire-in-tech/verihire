@@ -1,7 +1,7 @@
 import json
 import uuid
 from pathlib import Path
-from models import Job, JobCriteria, VerificationStatus
+from Backend.models import Job, JobCriteria, VerificationStatus
 
 class Database:
     """Simple in-memory database backed by JSON files for seed data."""
@@ -40,8 +40,13 @@ class Database:
         return [job for job in self.jobs.values() if job.is_active]
     
     def save_cv_upload(self, upload_data: dict) -> str:
-        """Save CV upload result and return upload ID."""
-        upload_id = str(uuid.uuid4())
+        """Save CV upload result and return its upload ID."""
+        upload_id = upload_data.get("upload_id")
+
+        if not upload_id:
+            upload_id = str(uuid.uuid4())
+            upload_data["upload_id"] = upload_id
+
         self.cv_uploads[upload_id] = upload_data
         return upload_id
     

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
-from models import JobListResponse, Job, JobMatchResult
-from database import db
+from Backend.models import JobListResponse, Job, JobMatchResult
+from Backend.database import db
 
 router = APIRouter(prefix="/api/employer", tags=["employer-dashboard"])
 
