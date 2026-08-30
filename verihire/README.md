@@ -1,5 +1,5 @@
 <p align="center">
-./VeriHire_Banner.png
+verihire/VeriHire_Banner.png
 </p>
 
 # 🚀 VeriHire
