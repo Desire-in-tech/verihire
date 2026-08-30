@@ -92,10 +92,8 @@ class RulesEngine:
             score = (met_criteria / total_criteria) * 100
         
         # Determine if CV matches (must meet all required skills and years of experience)
-        matches = (
-            all(f"Has required skill:" in req for req in matched_requirements if "Missing required skill:" not in str(missing_requirements)) or
-            len([m for m in matched_requirements if "Has required skill:" in m]) == len(job_criteria.required_skills)
-        ) and years_match
+        matched_skill_count = len([m for m in matched_requirements if "Has required skill:" in m])
+        matches = (matched_skill_count == len(job_criteria.required_skills)) and years_match
         
         reasoning = RulesEngine._generate_reasoning(matched_requirements, missing_requirements, score)
         

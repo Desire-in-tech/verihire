@@ -132,17 +132,17 @@ async def upload_cv(file: UploadFile = File(...), job_id: Optional[str] = Form(N
             "upload_id": upload_id,
             "cv_source": "pdf",
             "pdf_filename": file.filename,
-            "extracted_text": None,
+            "extracted_text": cv_text,
             "extracted_data": extracted_data.model_dump(),
             "matching_results": [r.model_dump() for r in matching_results],
             "proof_results": [p.model_dump() for p in proof_results],
         }
         db.save_cv_upload(upload_data)
-        
+
         return CVUploadResponse(
             upload_id=upload_id,
             cv_source="pdf",
-            extracted_text=None,
+            extracted_text=cv_text,
             extracted_data=extracted_data,
             matching_results=matching_results,
             proof_results=proof_results,
