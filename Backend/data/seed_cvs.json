@@ -1,0 +1,47 @@
+{
+  "cvs": [
+    {
+      "cv_id": "cv-001",
+      "name": "Alice Johnson",
+      "skills": ["Python", "FastAPI", "PostgreSQL", "Docker", "Linux", "Git"],
+      "years_experience": 6,
+      "education_level": "Bachelor's in Computer Science",
+      "languages": ["English", "Spanish"],
+      "certifications": [
+        "AWS Certified Solutions Architect Associate",
+        "Docker Certified Associate"
+      ],
+      "summary": "Senior full-stack developer with 6 years of experience in backend development using Python and modern frameworks"
+    },
+    {
+      "cv_id": "cv-002",
+      "name": "Bob Smith",
+      "skills": ["JavaScript", "React", "Node.js", "AWS", "MongoDB", "Express"],
+      "years_experience": 4,
+      "education_level": "Bachelor's in Software Engineering",
+      "languages": ["English", "French"],
+      "certifications": ["AWS Solutions Architect Associate"],
+      "summary": "Full-stack developer with strong experience in JavaScript ecosystem and cloud deployments"
+    },
+    {
+      "cv_id": "cv-003",
+      "name": "Charlie Davis",
+      "skills": ["Python", "Java", "SQL"],
+      "years_experience": 2,
+      "education_level": "Bachelor's in Computer Science",
+      "languages": ["English"],
+      "certifications": [],
+      "summary": "Junior developer with solid fundamentals and eager to learn modern technologies"
+    },
+    {
+      "cv_id": "cv-004",
+      "name": "Diana Chen",
+      "skills": ["Python", "Machine Learning", "Statistics", "Spark", "SQL", "TensorFlow", "Pandas"],
+      "years_experience": 5,
+      "education_level": "Master's in Data Science",
+      "languages": ["English", "Mandarin"],
+      "certifications": ["Google Professional Data Engineer", "AWS Machine Learning Specialty"],
+      "summary": "Data scientist with expertise in machine learning pipelines and statistical analysis"
+    }
+  ]
+}
