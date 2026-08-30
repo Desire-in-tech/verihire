@@ -136,6 +136,15 @@ class LMMAgentClient:
                 if isinstance(cert, str) and cert.strip()
             ]
 
+            languages = response_data.get("languages", [])
+            if not isinstance(languages, list):
+                raise ValueError("languages must be a list")
+            normalized_languages = [
+                language.strip().lower()
+                for language in languages
+                if isinstance(language, str) and language.strip()
+            ]
+
             education_level = response_data.get(
                 "education_level"
             )
@@ -152,6 +161,7 @@ class LMMAgentClient:
 
             return ExtractedCVData(
                 skills=skills,
+                languages=normalized_languages,
                 certifications=normalized_certifications,
                 education_level=education_level,
                 summary=summary,

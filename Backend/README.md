@@ -61,8 +61,9 @@ pip install -r requirements.txt
 
 Edit `.env` file if needed:
 ```
-PERSON_B_SERVICE_URL=http://localhost:8001
-MIDNIGHT_LAYER_URL=http://localhost:8002
+AI_SERVICE_URL=http://localhost:8001
+# Leave empty until a compiled contract, proof server, and funded wallet exist.
+MIDNIGHT_SERVICE_URL=
 ```
 
 ### 3. Run the Server
@@ -84,7 +85,7 @@ Upload CV as PDF file and:
 2. Forwards raw PDF bytes to Person B's LMM agent `/extract` endpoint
 3. Validates response with Pydantic
 4. Runs rules engine against all jobs
-5. Returns matching results and proof placeholders
+5. Requests a real Midnight proof only when `MIDNIGHT_SERVICE_URL` is configured
 
 **Request (multipart/form-data):**
 ```
@@ -104,7 +105,7 @@ This endpoint is retained for backwards compatibility and follows the same multi
 
 **Response includes:**
 - `cv_source: "pdf"` - Indicates PDF source
-- `extracted_text` - `null` (text extraction is delegated to Person B)
+- `extracted_text` - extracted selectable text from the uploaded PDF
 - `extracted_data` - Parsed CV data from Person B
 - `matching_results` - Job matches with scores
 - `proof_results` - Proof verification data
@@ -242,17 +243,10 @@ async def extract_cv_from_pdf(pdf_content: bytes, filename: str = "cv.pdf") -> E
 
 ### Midnight Layer Integration
 
-The API prepares proof results with placeholders for the Midnight layer:
-
-```python
-proof_result = ProofResult(
-    job_id=job.job_id,
-    applicant_verified=job.verification_status.value == "verified",
-    cv_data=extracted_data,
-    matching_result=rules_result,
-    proof_data=None  # Will be populated by Midnight layer
-)
-```
+The API sends only the fixed-shape circuit inputs needed by `job-001` to the
+Node Midnight service. When that service is not configured or unavailable, the
+response is explicitly marked `not_configured`, `unsupported_job`, or
+`unavailable`; it is never marked verified.
 
 ## API Documentation
 

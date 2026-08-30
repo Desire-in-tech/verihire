@@ -2,6 +2,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CvUploadForm } from "@/components/cv-upload-form";
 import { candidateProfile } from "@/lib/verihire-data";
 
 export default function ProfilePage() {
@@ -35,6 +36,7 @@ export default function ProfilePage() {
 
           <Button>Update profile</Button>
         </div>
+        <CvUploadForm />
       </Card>
     </AppShell>
   );

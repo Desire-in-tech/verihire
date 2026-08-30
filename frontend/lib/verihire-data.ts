@@ -170,6 +170,24 @@ export const employerCandidates = [
   { id: "vh-307", match: 87, role: "Machine Learning Engineer", status: "Pending" },
 ];
 
+export type CVUploadResult = {
+  upload_id: string;
+  matching_results: Array<{
+    job_id: string;
+    matches: boolean;
+    score: number;
+  }>;
+  proof_results: Array<{
+    job_id: string;
+    applicant_verified: boolean;
+    proof_data?: {
+      message?: string;
+      status?: string;
+      proof_id?: string;
+    };
+  }>;
+};
+
 export const navItems = {
   candidate: [
     { key: "overview", href: "/dashboard", label: "Overview" },

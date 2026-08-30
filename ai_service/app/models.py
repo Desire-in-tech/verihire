@@ -46,6 +46,10 @@ class ExtractionResult(BaseModel):
         default_factory=dict,
         description="skill name (lowercase) -> years of experience. 0 means 'present, duration unclear'.",
     )
+    languages: list[str] = Field(
+        default_factory=list,
+        description="Languages explicitly listed in the CV, normalized to lowercase.",
+    )
     certifications: list[str] = Field(
         default_factory=list,
         description="lowercase certification identifiers, e.g. 'aws_certified'.",

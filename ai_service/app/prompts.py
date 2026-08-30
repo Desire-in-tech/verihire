@@ -25,6 +25,8 @@ Return your answer using the `record_extraction` tool exactly once. Fields:
   but a duration isn't clear, use 0.
 - certifications: a list of lowercase certification identifiers
   (e.g. ["aws_certified", "pmp_certified"]).
+- languages: a list of languages explicitly stated in the CV, normalized to
+  lowercase (e.g. ["english", "swahili"]).
 - education_level: one of "none", "highschool", "bachelors", "masters",
   "phd", "equivalent_experience" - pick the highest level clearly evidenced.
 - raw_summary: one or two plain sentences summarizing the candidate's
@@ -67,13 +69,17 @@ EXTRACTION_TOOL = {
                 "type": "array",
                 "items": {"type": "string"},
             },
+            "languages": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
             "education_level": {
                 "type": "string",
                 "enum": ["none", "highschool", "bachelors", "masters", "phd", "equivalent_experience"],
             },
             "raw_summary": {"type": "string"},
         },
-        "required": ["skills", "certifications", "education_level"],
+        "required": ["skills", "certifications", "languages", "education_level"],
     },
 }
 

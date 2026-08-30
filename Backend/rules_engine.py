@@ -176,22 +176,23 @@ class RulesEngine:
         # 5. Languages
         # ---------------------------------------------------------------
         #
-        # ExtractedCVData currently has no languages field.
-        # Therefore language criteria cannot be reliably evaluated yet.
-        #
-        # If a job requires languages, mark them as missing rather than
-        # pretending the candidate satisfies them.
-        # ---------------------------------------------------------------
+        candidate_languages = {
+            language.strip().lower()
+            for language in cv_data.languages
+            if isinstance(language, str) and language.strip()
+        }
+        required_languages = {
+            language.strip().lower()
+            for language in job_criteria.languages
+            if isinstance(language, str) and language.strip()
+        }
+        languages_match = required_languages.issubset(candidate_languages)
 
-        languages_match = True
-
-        if job_criteria.languages:
-            languages_match = False
-
-            for language in job_criteria.languages:
-                missing_requirements.append(
-                    f"Language verification unavailable: {language}"
-                )
+        for language in required_languages:
+            if language in candidate_languages:
+                matched_requirements.append(f"Speaks required language: {language}")
+            else:
+                missing_requirements.append(f"Missing required language: {language}")
 
         # ---------------------------------------------------------------
         # 6. Calculate score

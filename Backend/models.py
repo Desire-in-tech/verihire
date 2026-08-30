@@ -12,6 +12,11 @@ class JobCriteria(BaseModel):
         default_factory=dict,
         description="Required skill -> minimum years of experience. 0 means skill must simply be present."
     )
+    min_years_experience: int = Field(
+        default=0,
+        ge=0,
+        description="Minimum overall years of experience.",
+    )
     education_level: Optional[str] = None
     languages: List[str] = Field(default_factory=list)
     certifications: List[str] = Field(default_factory=list)
@@ -39,6 +44,7 @@ class ExtractedCVData(BaseModel):
         skill_name -> years of experience
     """
     skills: Dict[str, int] = Field(default_factory=dict)
+    languages: List[str] = Field(default_factory=list)
     education_level: Optional[str] = None
     certifications: List[str] = Field(default_factory=list)
     summary: Optional[str] = None

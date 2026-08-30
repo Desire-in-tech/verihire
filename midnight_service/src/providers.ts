@@ -1,61 +1,176 @@
-/**
- * What this file does
- * --------------------
- * Builds the `providers` object that every other Midnight SDK call in this
- * service needs (deploying the contract, calling a circuit on it). This
- * wiring is copied from the pattern shown in Midnight's own "deploy an
- * app" guide (https://docs.midnight.network/guides/deploy-mn-app) using
- * the real npm packages this project depends on - it is NOT something we
- * were able to compile or run in this environment (no Midnight node,
- * indexer, or proof server reachable here), so treat it as a strong
- * starting point to debug against your actual local devnet, not a
- * guaranteed-working file.
- *
- * The one piece intentionally left as a TODO is the wallet/signing
- * provider - a real one needs to sign transactions with an actual funded
- * testnet wallet (e.g. via @midnight-ntwrk/wallet or a browser Lace wallet
- * connection), which is specific to how your team wants to hold that
- * wallet's key material. Everything else here only needs the URLs in
- * your .env file.
- */
+import { WebSocket } from "ws";
+import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
+import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
+import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
+import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
+import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
+import type {
+  MidnightProvider,
+  UnboundTransaction,
+  WalletProvider,
+} from "@midnight-ntwrk/midnight-js-types";
+import * as ledger from "@midnight-ntwrk/midnight-js-protocol/ledger";
+import type { FinalizedTransaction } from "@midnight-ntwrk/midnight-js-protocol/ledger";
+import {
+  HDWallet,
+  Roles,
+  WalletFacade,
+  ShieldedWallet,
+  DustWallet,
+  UnshieldedWallet,
+  createKeystore,
+  InMemoryTransactionHistoryStorage,
+  WalletEntrySchema,
+  PublicKey as UnshieldedPublicKey,
+  type UnshieldedKeystore,
+} from "@midnight-ntwrk/wallet-sdk";
 
-import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
-import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
-import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
-import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
+// Apollo's indexer client reads WebSocket from the global scope in Node.
+// This is the official Node setup used by Midnight's current examples.
+(globalThis as any).WebSocket = WebSocket;
 
-export type VerihireCircuitId = 'proveEligibility' | 'checkResult';
+export type VerihireCircuitId = "proveEligibility" | "checkResult";
 
-export function buildProviders(env: {
+export type MidnightEnvironment = {
   indexerUrl: string;
   indexerWsUrl: string;
+  nodeUrl: string;
   proofServerUrl: string;
-  compiledContractDir: string; // path to the `managed/verihire` output of `compact compile`
+  compiledContractDir: string;
   walletAddress: string;
-}) {
-  const privateStateProvider = levelPrivateStateProvider({
-    privateStateStoreName: 'verihire-private-state',
-    signingKeyStoreName: 'verihire-signing-keys',
-    // Hackathon-only: a real deployment should source this from a proper
-    // secret store, not a hardcoded string.
-    privateStoragePasswordProvider: () => 'verihire-hackathon-demo',
-    accountId: env.walletAddress,
+  networkId: "preprod" | "undeployed";
+  walletSeed: Uint8Array;
+  storagePassword: string;
+};
+
+export type WalletContext = {
+  wallet: WalletFacade;
+  shieldedSecretKeys: ledger.ZswapSecretKeys;
+  dustSecretKey: ledger.DustSecretKey;
+  unshieldedKeystore: UnshieldedKeystore;
+};
+
+export function readWalletSeed(value = process.env.WALLET_SEED): Uint8Array {
+  const seed = value?.trim();
+  if (!seed || !/^[0-9a-fA-F]+$/.test(seed) || ![64, 128].includes(seed.length)) {
+    throw new Error("WALLET_SEED must be a 32-byte or 64-byte hexadecimal seed");
+  }
+  return Uint8Array.from(Buffer.from(seed, "hex"));
+}
+
+async function createWallet(env: MidnightEnvironment): Promise<WalletContext> {
+  const hdWallet = HDWallet.fromSeed(env.walletSeed);
+  if (hdWallet.type !== "seedOk") {
+    throw new Error("WALLET_SEED could not initialize an HD wallet");
+  }
+
+  const derivationResult = hdWallet.hdWallet
+    .selectAccount(0)
+    .selectRoles([Roles.Zswap, Roles.NightExternal, Roles.Dust])
+    .deriveKeysAt(0);
+  if (derivationResult.type !== "keysDerived") {
+    throw new Error("WALLET_SEED could not derive wallet keys");
+  }
+  hdWallet.hdWallet.clear();
+
+  const shieldedSecretKeys = ledger.ZswapSecretKeys.fromSeed(derivationResult.keys[Roles.Zswap]);
+  const dustSecretKey = ledger.DustSecretKey.fromSeed(derivationResult.keys[Roles.Dust]);
+  const unshieldedKeystore = createKeystore(
+    derivationResult.keys[Roles.NightExternal],
+    env.networkId,
+  );
+
+  const relayURL = new URL(env.nodeUrl.replace(/^http/, "ws"));
+  const history = () => new InMemoryTransactionHistoryStorage(WalletEntrySchema);
+  const shared = {
+    networkId: env.networkId,
+    indexerClientConnection: {
+      indexerHttpUrl: env.indexerUrl,
+      indexerWsUrl: env.indexerWsUrl,
+    },
+  };
+  const shieldedConfig = {
+    ...shared,
+    provingServerUrl: new URL(env.proofServerUrl),
+    relayURL,
+    txHistoryStorage: history(),
+  };
+  const unshieldedConfig = { ...shared, txHistoryStorage: history() };
+  const dustConfig = {
+    ...shared,
+    costParameters: {
+      additionalFeeOverhead: 300_000_000_000_000n,
+      feeBlocksMargin: 5,
+    },
+    provingServerUrl: new URL(env.proofServerUrl),
+    relayURL,
+    txHistoryStorage: history(),
+  };
+
+  const wallet = await WalletFacade.init({
+    configuration: { ...shieldedConfig, ...unshieldedConfig, ...dustConfig },
+    shielded: () => ShieldedWallet(shieldedConfig).startWithSecretKeys(shieldedSecretKeys),
+    unshielded: () =>
+      UnshieldedWallet(unshieldedConfig).startWithPublicKey(
+        UnshieldedPublicKey.fromKeyStore(unshieldedKeystore),
+      ),
+    dust: () =>
+      DustWallet(dustConfig).startWithSecretKey(
+        dustSecretKey,
+        ledger.LedgerParameters.initialParameters().dust,
+      ),
   });
+  await wallet.start(shieldedSecretKeys, dustSecretKey);
+  return { wallet, shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
+}
 
-  const publicDataProvider = indexerPublicDataProvider(env.indexerUrl, env.indexerWsUrl);
+function createWalletProviders(context: WalletContext): WalletProvider & MidnightProvider {
+  return {
+    getCoinPublicKey: () => context.shieldedSecretKeys.coinPublicKey,
+    getEncryptionPublicKey: () => context.shieldedSecretKeys.encryptionPublicKey,
+    async balanceTx(tx: UnboundTransaction, ttl?: Date): Promise<FinalizedTransaction> {
+      const recipe = await context.wallet.balanceUnboundTransaction(
+        tx,
+        {
+          shieldedSecretKeys: context.shieldedSecretKeys,
+          dustSecretKey: context.dustSecretKey,
+        },
+        { ttl: ttl ?? new Date(Date.now() + 30 * 60 * 1000) },
+      );
+      return context.wallet.finalizeRecipe(recipe);
+    },
+    submitTx: (tx) => context.wallet.submitTransaction(tx),
+  };
+}
 
-  const zkConfigProvider = new NodeZkConfigProvider<VerihireCircuitId>(env.compiledContractDir);
+export async function buildProviders(env: MidnightEnvironment) {
+  if (!env.indexerUrl || !env.indexerWsUrl || !env.nodeUrl) {
+    throw new Error("INDEXER_URL, INDEXER_WS_URL, and NODE_URL are required");
+  }
+  if (!env.storagePassword || env.storagePassword.length < 16) {
+    throw new Error("MIDNIGHT_STORAGE_PASSWORD must be at least 16 characters");
+  }
 
-  const proofProvider = httpClientProofProvider(env.proofServerUrl, zkConfigProvider);
-
-  // TODO: wire up a real wallet/midnight provider here. It must implement
-  // the WalletProvider + MidnightProvider interfaces from
-  // @midnight-ntwrk/midnight-js-types and sign transactions with a funded
-  // testnet wallet. See https://docs.midnight.network for the current
-  // recommended approach (a programmatic wallet vs. a browser Lace
-  // connection) - this differs enough by use case that we didn't want to
-  // guess at your team's choice here.
-  const walletAndMidnightProvider = undefined as unknown;
+  setNetworkId(env.networkId);
+  const walletContext = await createWallet(env);
+  const privateStateProvider = levelPrivateStateProvider({
+    privateStateStoreName: "verihire-private-state",
+    signingKeyStoreName: "verihire-signing-keys",
+    privateStoragePasswordProvider: () => env.storagePassword,
+    accountId: env.walletAddress || walletContext.unshieldedKeystore.getBech32Address().asString(),
+  });
+  const publicDataProvider = indexerPublicDataProvider(
+    env.indexerUrl,
+    env.indexerWsUrl,
+  );
+  const zkConfigProvider = new NodeZkConfigProvider<VerihireCircuitId>(
+    env.compiledContractDir,
+  );
+  const proofProvider = httpClientProofProvider(
+    env.proofServerUrl,
+    zkConfigProvider,
+  );
+  const walletAndMidnightProvider = createWalletProviders(walletContext);
 
   return {
     privateStateProvider,

@@ -78,6 +78,8 @@ _CERT_PATTERNS = {
     "azure_certified": r"azure certifi",
 }
 
+_KNOWN_LANGUAGES = ["english", "french", "german", "spanish", "swahili", "arabic"]
+
 
 def _skills_with_years(text: str) -> dict[str, int]:
     """
@@ -105,6 +107,7 @@ def _fallback_extract_cv(cv_text: str) -> ExtractionResult:
     skills = _skills_with_years(text)
 
     certifications = [cert for cert, pattern in _CERT_PATTERNS.items() if re.search(pattern, text)]
+    languages = [language for language in _KNOWN_LANGUAGES if re.search(rf"\b{language}\b", text)]
 
     if "phd" in text or "doctorate" in text:
         education = EducationLevel.PHD
@@ -119,6 +122,7 @@ def _fallback_extract_cv(cv_text: str) -> ExtractionResult:
 
     return ExtractionResult(
         skills=skills,
+        languages=languages,
         certifications=certifications,
         education_level=education,
         raw_summary="(offline fallback extraction - no ANTHROPIC_API_KEY configured)",

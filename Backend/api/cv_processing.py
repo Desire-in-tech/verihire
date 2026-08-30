@@ -10,10 +10,12 @@ from Backend.lmm_agent_client import LMMAgentClient
 from Backend.pdf_extractor import extract_text_from_pdf
 from Backend.rules_engine import RulesEngine
 from Backend.database import db
+from Backend.midnight_client import MidnightClient
 import uuid
 
 router = APIRouter(prefix="/api", tags=["cv-processing"])
 lmm_agent_client = LMMAgentClient()
+midnight_client = MidnightClient()
 
 
 def _build_results(
@@ -28,11 +30,7 @@ def _build_results(
     """
     if job_id:
         job = db.get_job(job_id)
-
-        if not job.is_active:
-            return [], []
-
-        jobs = [job]
+        jobs = [job] if job.is_active else []
     else:
         jobs = [
             job
@@ -55,12 +53,13 @@ def _build_results(
         proof_results.append(
             ProofResult(
                 job_id=job.job_id,
-                applicant_verified=(
-                    job.verification_status.value == "verified"
-                ),
+                applicant_verified=False,
                 cv_data=extracted_data,
                 matching_result=result,
-                proof_data=None,
+                proof_data={
+                    "status": "pending",
+                    "mode": "not_requested",
+                },
             )
         )
 
@@ -211,6 +210,9 @@ async def _process_cv(
     if not pdf_bytes:
         raise ValueError("Uploaded CV is empty")
 
+    if not pdf_bytes.startswith(b"%PDF-"):
+        raise ValueError("CV must be a valid PDF file")
+
     # ---------------------------------------------------------------
     # 3. Extract text locally
     # ---------------------------------------------------------------
@@ -234,19 +236,37 @@ async def _process_cv(
     # 5. Run deterministic matching
     # ---------------------------------------------------------------
 
+    # Create the stable reference before contacting Midnight so the opaque
+    # result key is deterministic for this upload/job pair.
+    upload_id = str(uuid.uuid4())
+
     matching_results, proof_results = _build_results(
         extracted_data,
         job_id=job_id,
     )
 
-    # ---------------------------------------------------------------
-    # 6. Create upload ID
-    # ---------------------------------------------------------------
+    # Keep the conventional score and the privacy proof as separate signals.
+    # Only the fixed-shape flagship job is sent to the Midnight service.
+    for proof_result in proof_results:
+        job = db.get_job(proof_result.job_id)
+        try:
+            proof_data = await midnight_client.prove(
+                upload_id=upload_id,
+                job=job,
+                candidate=extracted_data,
+                result=proof_result,
+            )
+        except RuntimeError as exc:
+            proof_data = {
+                "status": "unavailable",
+                "mode": "local_fallback",
+                "message": str(exc),
+            }
+        proof_result.proof_data = proof_data
+        proof_result.applicant_verified = proof_data.get("status") == "verified"
 
-    upload_id = str(uuid.uuid4())
-
     # ---------------------------------------------------------------
-    # 7. Persist result
+    # 6. Persist result
     # ---------------------------------------------------------------
 
     upload_data = {

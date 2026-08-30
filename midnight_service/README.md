@@ -1,75 +1,62 @@
-# VeriHire Midnight Service
+# VeriHire Midnight service
 
-This is the piece that turns the mocked proof step into a **real** Midnight
-ZK proof. It's a small Node/TypeScript HTTP service (Midnight's own
-tooling is JS/TypeScript, not Python) that the backend calls instead of
-`backend/app/midnight_mock.py`, once it's actually running.
+This Node/TypeScript service is the real Midnight.js boundary used by the
+FastAPI backend. It exposes:
 
-**Status: written against the current public Midnight docs, not yet
-compiled or run.** This environment had no Compact compiler, no Midnight
-node/indexer, no proof server, and no funded testnet wallet available, so
-none of this has been exercised end-to-end. Treat everything here as a
-grounded starting point — real package names (checked against the npm
-registry), real documented code patterns — not a verified-working
-integration. Budget real time to stand up the toolchain and debug it.
+- `GET /health` — service, contract, wallet, and network configuration status
+- `POST /prove` — validates the fixed-shape request, calls
+  `proveEligibility`, and reads the public result back from the ledger
 
-## What you need to actually run this
+The service is intentionally not a proof simulator. Without a configured
+contract, proof server, and funded wallet, `/prove` fails explicitly and the
+Python backend reports `not_configured` or `unavailable` rather than claiming
+verification.
 
-1. **The Compact compiler**, to turn `../contract/verihire.compact` into
-   the TypeScript bindings this service imports:
-   ```bash
-   curl --proto '=https' --tlsv1.2 -LsSf https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
-   compact compile ../contract/verihire.compact managed/verihire
-   ```
+## Current compatibility set
 
-2. **A local proof server** (generates the actual ZK proofs):
-   ```bash
-   docker run -p 6300:6300 midnightntwrk/proof-server:8.1.0 midnight-proof-server -v
-   ```
+The contract was compiled and the TypeScript service was built with the
+current tested preprod matrix:
 
-3. **Midnight node + indexer RPC endpoints.** Get current testnet URLs
-   from [docs.midnight.network](https://docs.midnight.network) — these
-   change as the network progresses, so don't hardcode last month's values.
+- Compact toolchain: `0.31.1`
+- Compact runtime: `0.16.0`
+- Midnight.js: `4.1.1`
+- Proof server: `8.1.0`
+- Wallet SDK: `1.2.0`
 
-4. **A funded testnet wallet.** `providers.ts` leaves the wallet/signing
-   provider as an explicit `TODO` — it needs to sign transactions with a
-   real wallet, which is specific to whether your team wants a
-   programmatic wallet (`@midnight-ntwrk/wallet`) or a browser Lace
-   wallet connection. Check the current docs for the recommended approach
-   before wiring this up; it's genuinely the piece most likely to have
-   moved since these docs were written.
-
-## Setup
+## Local setup
 
 ```bash
-npm install
-cp .env.example .env   # fill in the URLs above once you have them
-npm run deploy-contract  # after compiling the contract - prints CONTRACT_ADDRESS
-# paste that address into .env, then:
+npm ci
+export PATH="$HOME/.local/bin:$PATH"
+compact compile ../contract/verihire.compact managed/verihire
+npm run build
 npm run dev
 ```
 
-Once this is running and reachable, set `MIDNIGHT_SERVICE_URL=http://localhost:7000`
-in `backend/.env` and restart the backend — `backend/app/midnight_client.py`
-will start calling this service for every application instead of the
-offline mock, and will automatically fall back to the mock again if this
-service becomes unreachable.
+The compiler can be installed from the official Compact devtools release:
 
-## What the circuit actually proves
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh | sh
+compact update 0.31.1
+```
 
-See `../contract/verihire.compact` for the full contract and its own
-design notes. Short version: it takes the candidate's real Python years /
-PostgreSQL / AWS cert / education level as **private** circuit inputs,
-compares them against the job's **public** requirement thresholds, and
-writes only a `Boolean` ("eligible or not") to public ledger state, keyed
-by a hash of `(candidate_ref, job_id)` — never the candidate's name, CV,
-or raw values. That's the actual privacy-preserving proof this hackathon
-track is asking for; everything else in this repo is scaffolding around
-getting real values into and out of that one circuit call.
+## Real preprod configuration
 
-**Known MVP limitation:** the circuit's shape is fixed at compile time, so
-it only faithfully represents jobs built from those four criteria (the
-flagship seed job). See `backend/app/midnight_client.py`'s
-`_map_to_circuit_inputs` for exactly how the mapping works and where it
-falls short for other jobs — worth a real conversation before this goes
-past a demo.
+Copy `.env.example` to `.env` and provide:
+
+- the current preprod indexer and WebSocket URLs
+- a compatible proof-server URL
+- a deployed contract address
+- `WALLET_SEED`, a 32-byte or 64-byte hexadecimal seed
+- `MIDNIGHT_STORAGE_PASSWORD`, at least 16 characters
+
+The service uses the official programmatic `@midnight-ntwrk/wallet-sdk`
+pattern: `HDWallet`, `WalletFacade`, `ShieldedWallet`, `UnshieldedWallet`,
+and `DustWallet`. This repository does not include a funded seed and has not
+submitted a live transaction.
+
+The generated contract is a fixed-shape MVP circuit for `job-001`. It proves
+Python years, PostgreSQL presence, AWS certification, and
+Bachelor's-or-equivalent education without writing those private values to
+public ledger state.

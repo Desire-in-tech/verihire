@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     LMM_AGENT_URL: str = "http://localhost:8001"
     LMM_AGENT_API_KEY: str = ""
     LMM_AGENT_BEARER_TOKEN: str = ""
-    MIDNIGHT_LAYER_URL: str = "http://localhost:8002"
+    MIDNIGHT_SERVICE_URL: str = ""
+    MIDNIGHT_SERVICE_TIMEOUT: float = 60.0
     
     class Config:
         env_file = ".env"

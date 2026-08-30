@@ -11,15 +11,8 @@
 // bar. That's the "private inference gating" pattern from the hackathon's
 // AI track: proving eligibility without revealing the underlying data.
 //
-// HONESTY NOTE FOR THE TEAM: this is real Compact syntax, written against
-// the current language reference at https://docs.midnight.network/develop/reference/compact/lang-ref
-// and the "hello world" tutorial - but it has NOT been run through the
-// `compact compile` toolchain in this environment (no compiler binary,
-// no proof server, no funded testnet wallet available here). Treat this
-// as a strong first draft, not a verified-working contract: expect to
-// run `compact compile verihire.compact managed/verihire` yourselves,
-// fix whatever the compiler flags, and iterate. See midnight_service/README.md
-// for the exact toolchain setup steps.
+// This source is compiled with the current tested preprod toolchain
+// (Compact compiler 0.31.1 / Compact runtime 0.16.0).
 //
 // Design choice: a Compact circuit's shape (its inputs) is fixed at
 // compile time - it can't take an arbitrary-length list of skills the way
@@ -32,6 +25,8 @@
 // before this goes past the hackathon demo.
 
 pragma language_version 0.23;
+
+import CompactStandardLibrary;
 
 // Public ledger state: candidate+job pair (as an opaque hash computed
 // off-chain by the backend) -> whether they were found eligible. This is
@@ -73,5 +68,5 @@ export circuit proveEligibility(
 // Read-only helper so a verifier (an employer's client, or anyone) can
 // check a previously-recorded result without re-running the circuit.
 export circuit checkResult(resultKey: Bytes<32>): Boolean {
-  return eligibilityResults.lookup(resultKey);
+  return eligibilityResults.lookup(disclose(resultKey));
 }

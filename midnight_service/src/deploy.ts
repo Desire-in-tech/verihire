@@ -17,27 +17,34 @@
 
 import 'dotenv/config';
 import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
-import { buildProviders } from './providers.js';
+import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
+import { buildProviders, readWalletSeed } from './providers.js';
 
 async function main() {
-  const providers = buildProviders({
+  const providers = await buildProviders({
     indexerUrl: process.env.INDEXER_URL ?? '',
     indexerWsUrl: process.env.INDEXER_WS_URL ?? '',
     proofServerUrl: process.env.PROOF_SERVER_URL ?? 'http://localhost:6300',
     compiledContractDir: new URL('../managed/verihire', import.meta.url).pathname,
     walletAddress: process.env.WALLET_ADDRESS ?? '',
+    nodeUrl: process.env.NODE_URL ?? 'wss://rpc.preprod.midnight.network',
+    networkId: (process.env.NETWORK_ID ?? 'preprod') as 'preprod' | 'undeployed',
+    walletSeed: readWalletSeed(),
+    storagePassword: process.env.MIDNIGHT_STORAGE_PASSWORD ?? '',
   });
 
-  // `compiledContract` is whatever `compact compile` generated for
-  // verihire.compact - typically a TypeScript module under managed/verihire
-  // that this import path should point at once the contract is compiled.
-  // @ts-expect-error - path only exists after running `compact compile`
-  const { contract: compiledContract } = await import('../managed/verihire/contract/index.cjs');
+  const compiledContractModule = new URL(
+    '../managed/verihire/contract/index.js',
+    import.meta.url,
+  ).href;
+  const contractModule = await import(compiledContractModule);
+  const compiledContract = CompiledContract.make('Verihire', contractModule.Contract).pipe(
+    CompiledContract.withCompiledFileAssets(new URL('../managed/verihire', import.meta.url).pathname),
+  );
 
   const deployed = await deployContract(providers as never, {
-    compiledContract,
-    privateStateId: 'verihirePrivateState',
-    initialPrivateState: {},
+    compiledContract: compiledContract as never,
+    args: [],
   });
 
   console.log('Deployed VeriHire contract at address:');

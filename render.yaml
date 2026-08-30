@@ -1,0 +1,54 @@
+services:
+  - type: web
+    name: verihire-frontend
+    runtime: node
+    buildCommand: cd frontend && npm ci && npm run build
+    startCommand: cd frontend && npm run start -- --hostname 0.0.0.0
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+
+  - type: web
+    name: verihire-api
+    runtime: python
+    buildCommand: pip install -r Backend/requirements.txt
+    startCommand: uvicorn Backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: AI_SERVICE_URL
+        sync: false
+      - key: MIDNIGHT_SERVICE_URL
+        sync: false
+
+  - type: web
+    name: verihire-ai
+    runtime: python
+    buildCommand: pip install -r ai_service/requirements.txt
+    startCommand: uvicorn ai_service.app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-4-5
+
+  - type: web
+    name: verihire-midnight
+    runtime: docker
+    dockerfilePath: ./midnight_service/Dockerfile
+    dockerContext: .
+    envVars:
+      - key: NETWORK_ID
+        value: preprod
+      - key: NODE_URL
+        value: wss://rpc.preprod.midnight.network
+      - key: INDEXER_URL
+        value: https://indexer.preprod.midnight.network/api/v4/graphql
+      - key: INDEXER_WS_URL
+        value: wss://indexer.preprod.midnight.network/api/v4/graphql/ws
+      - key: PROOF_SERVER_URL
+        sync: false
+      - key: WALLET_SEED
+        sync: false
+      - key: MIDNIGHT_STORAGE_PASSWORD
+        sync: false
+      - key: CONTRACT_ADDRESS
+        sync: false

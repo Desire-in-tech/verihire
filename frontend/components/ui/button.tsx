@@ -10,6 +10,7 @@ type ButtonProps = {
   href?: string;
   type?: "button" | "submit" | "reset";
   onClick?: () => void;
+  disabled?: boolean;
 };
 
 const variantClasses: Record<ButtonVariant, string> = {
@@ -27,6 +28,7 @@ export function Button({
   href,
   type = "button",
   onClick,
+  disabled = false,
 }: ButtonProps) {
   const sharedClassName = `inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#31d4c7] focus-visible:ring-offset-2 focus-visible:ring-offset-[#080b10] ${variantClasses[variant]} ${className}`;
 
@@ -39,7 +41,7 @@ export function Button({
   }
 
   return (
-    <button type={type} className={sharedClassName} onClick={onClick}>
+    <button type={type} className={sharedClassName} onClick={onClick} disabled={disabled}>
       {children}
     </button>
   );

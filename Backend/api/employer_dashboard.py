@@ -62,12 +62,23 @@ async def get_proof_result(upload_id: str):
         if not proof_results:
             raise ValueError("No proof results found for this upload")
         
-        # Return comprehensive proof data
+        # Employers receive verification claims only. Candidate credentials and
+        # raw CV text stay on the candidate-side upload response.
         return {
             "upload_id": upload_id,
-            "proof_results": proof_results,
-            "extracted_cv_data": upload_data["extracted_data"],
-            "matching_results": upload_data["matching_results"],
+            "proof_results": [
+                {
+                    "job_id": proof["job_id"],
+                    "applicant_verified": proof["applicant_verified"],
+                    "proof_data": proof.get("proof_data"),
+                    "matching_result": {
+                        "job_id": proof["matching_result"]["job_id"],
+                        "matches": proof["matching_result"]["matches"],
+                        "score": proof["matching_result"]["score"],
+                    },
+                }
+                for proof in proof_results
+            ],
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
