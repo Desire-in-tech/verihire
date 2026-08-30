@@ -1,447 +1,345 @@
 # VeriHire Architecture Overview
 
-## System Architecture
+## System architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                       FRONTEND (not in this repo pass)               │
+│         Candidate: submit CV, browse jobs, apply, disclose           │
+│         Employer: post a job, verify a company, view applicants      │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                │ HTTP
+                                ▼
+     ┌───────────────────────────────────────────────────┐
+     │              Backend/  — API layer (FastAPI)        │
+     │                                                     │
+     │  ┌───────────────────────────────────────────┐    │
+     │  │ POST /api/candidates                       │    │
+     │  │ POST /api/candidates/{id}/apply/{job_id}    │    │
+     │  │ POST /api/candidates/{id}/disclose/{job_id} │    │
+     │  │ GET  /api/jobs                              │    │
+     │  │ GET  /api/jobs/{job_id}                     │    │
+     │  │ POST /api/jobs                              │    │
+     │  │ POST /api/jobs/verify-external              │    │
+     │  │ GET  /api/employers/jobs/{id}/candidates    │    │
+     │  └───────────────────────────────────────────┘    │
+     │                        ▼                            │
+     │  ┌───────────────────────────────────────────┐    │
+     │  │ database.py — in-memory jobs/candidates/    │    │
+     │  │ applications tables                         │    │
+     │  └───────────────────────────────────────────┘    │
+     │                        ▼                            │
+     │  ┌────────────────┐  ┌────────────────┐  ┌────────┐│
+     │  │ ai_client.py   │  │ rules_engine.py│  │employer││
+     │  │ (calls out)    │  │ (pure Python)  │  │_verif  ││
+     │  └───────┬────────┘  └────────────────┘  └────────┘│
+     │          │                                          │
+     │          │           ┌────────────────────────────┐│
+     │          │           │ midnight_client.py           ││
+     │          │           │  → midnight_mock.py, or       ││
+     │          │           │  → real Midnight service      ││
+     │          │           └───────────┬────────────────┘│
+     └──────────┼───────────────────────┼─────────────────┘
+                │ HTTP                  │ HTTP (if MIDNIGHT_SERVICE_URL set)
+                ▼                       ▼
+     ┌────────────────────┐   ┌──────────────────────────┐
+     │  ai_service/         │   │  midnight_service/          │
+     │  POST /extract       │   │  POST /prove                │
+     │  POST /parse-job     │   │  (Node/TS, wraps the real    │
+     │  (Claude tool-use,   │   │   @midnight-ntwrk SDK against│
+     │   offline fallback)  │   │   contract/verihire.compact) │
+     └────────────────────┘   │  NOT YET compiled/deployed   │
+                                └──────────────────────────┘
+```
+
+---
+
+## Data flow: candidate applies to a job
+
+```
+1. CANDIDATE REGISTRATION
+   Client
+     │
+     └─→ POST /api/candidates  (PDF file, or {cv_text, name?, email?, phone?})
+           │
+           ├─ if PDF: pdfplumber extracts text (api/candidates.py)
+           │
+           └─→ ai_client.extract_cv(text)
+                 │
+                 └─→ HTTP POST ai_service /extract
+                       │
+                       ▼
+                    Claude tool-use call, or offline keyword fallback
+                       │
+                       └─→ ExtractionResult
+                             { skills: {"python": 4, ...},
+                               certifications: [...],
+                               education_level: "bachelors",
+                               raw_summary: "..." }
+           │
+           └─→ CandidateProfile stored (private) — response returns only
+                 candidate_id + anonymized_ref (e.g. "PX-104")
+
+
+2. APPLYING TO A JOB
+   Client
+     │
+     └─→ POST /api/candidates/{id}/apply/{job_id}
+           │
+           ├─→ rules_engine.evaluate(ref, job_id, extraction, job.requirements)
+           │     │
+           │     ├─ per required skill: candidate_years >= min_years?
+           │     ├─ per required cert: present in candidate certs?
+           │     ├─ education: candidate level >= required level (or
+           │     │  "equivalent_experience", which always satisfies)?
+           │     │
+           │     └─→ MatchResult { criteria: [...], score, tier, overall_match }
+           │
+           └─→ midnight_client.generate_proof(match, extraction, requirements)
+                 │
+                 ├─ MIDNIGHT_SERVICE_URL unset → midnight_mock.generate_proof(match)
+                 │     (proof_id, verified = match.overall_match, claim, claim_hash)
+                 │
+                 └─ MIDNIGHT_SERVICE_URL set → POST real midnight_service /prove
+                       with private circuit inputs (_map_to_circuit_inputs):
+                       python_years, has_postgresql, has_aws_cert,
+                       has_bachelors_or_equivalent (private) +
+                       required_python_years, require_postgresql,
+                       require_aws_cert, require_bachelors (public)
+                       — falls back to the mock on any failure
+           │
+           └─→ ApplicationResult stored & returned:
+                 { candidate_ref, job_id, match, proof,
+                   disclosure_level: "anonymous", contact: null }
+
+
+3. EMPLOYER VIEWS APPLICANTS
+   Employer
+     │
+     └─→ GET /api/employers/jobs/{job_id}/candidates
+           │
+           └─→ every ApplicationResult for that job, contact stripped
+                 unless disclosure_level == "full_disclosure"
+
+
+4. CANDIDATE DISCLOSES (their choice, per application)
+   Client
+     │
+     └─→ POST /api/candidates/{id}/disclose/{job_id}?level=full_disclosure
+           │
+           └─→ candidate.disclosure_level updated;
+                 application.contact populated {name, email, phone}
+                 (only for this one job_id — other applications from the
+                 same candidate are untouched)
+```
+
+---
+
+## Rules engine algorithm
+
+```
+Input: JobRequirements + ExtractionResult
+       ↓
+
+┌───────────────────────────────────────┐
+│  SKILL MATCHING                        │
+├───────────────────────────────────────┤
+│ Required: {"python": 3, "postgresql": 0,│
+│            "aws": 0, "backend": 0}      │
+│                                         │
+│ Candidate has: {"python": 4,           │
+│   "postgresql": 0, "aws": 0,           │
+│   "backend": 4, "fastapi": 0, ...}     │
+│                                         │
+│ Result: all 4 satisfied (python 4>=3,  │
+│ others just need to be present)        │
+└───────────────────────────────────────┘
+       ↓
+┌───────────────────────────────────────┐
+│  CERTIFICATION MATCHING                │
+├───────────────────────────────────────┤
+│ Required: ["aws_certified"]            │
+│ Candidate has: ["aws_certified"]  ✓    │
+└───────────────────────────────────────┘
+       ↓
+┌───────────────────────────────────────┐
+│  EDUCATION MATCHING                    │
+├───────────────────────────────────────┤
+│ Required: "bachelors" or higher        │
+│ Candidate has: "bachelors"  ✓          │
+│ ("equivalent_experience" always passes)│
+└───────────────────────────────────────┘
+       ↓
+┌───────────────────────────────────────┐
+│  SCORE + TIER                          │
+├───────────────────────────────────────┤
+│ Criteria checked: 6 (4 skills + 1 cert │
+│  + 1 education)                        │
+│ Criteria satisfied: 6                  │
+│ score = 6/6 = 1.0                      │
+│ all satisfied → tier = "excellent"     │
+│ overall_match = true                   │
+└───────────────────────────────────────┘
+
+Output: MatchResult
+```
+
+---
+
+## Tier interpretation
+
+```
+┌───────────────────────────────────────────────────────────┐
+│ TIER            SCORE RANGE       MEANING                  │
+├───────────────────────────────────────────────────────────┤
+│ excellent   │ all criteria met │ Meets every requirement.  │
+│ good        │ score >= 0.75    │ Meets most requirements.  │
+│ average     │ score >= 0.5     │ Meets about half.         │
+│ poor        │ below 0.5        │ Missing most requirements.│
+└───────────────────────────────────────────────────────────┘
+
+overall_match is only ever true at "excellent" — it requires every
+criterion satisfied, not just a high score.
+```
+
+---
+
+## Error handling
+
+```
+POST /api/candidates
+    ├─→ neither file nor cv_text given, or both given → 422
+    ├─→ non-PDF filename, empty file, invalid PDF signature → 422
+    ├─→ PDF has no extractable text (e.g. scanned image) → 422
+    ├─→ ai_service unreachable → 502
+    ├─→ ai_service returns an unexpected shape → 502
+    └─→ success → 200 CandidateProfile (PII/extraction excluded)
+
+POST /api/candidates/{id}/apply/{job_id}
+    ├─→ unknown candidate_id or job_id → 404
+    └─→ success → 200 ApplicationResult (Midnight failure never surfaces
+          as an error here — midnight_client falls back to the mock)
+
+POST /api/candidates/{id}/disclose/{job_id}
+    ├─→ unknown candidate_id → 404
+    ├─→ no prior application for that job (must /apply first) → 404
+    └─→ success → 200 ApplicationResult, contact populated iff full_disclosure
+
+GET /api/jobs/{job_id}, GET /api/employers/jobs/{id}/candidates
+    └─→ unknown job_id → 404
+```
+
+---
+
+## Storage (in-memory)
+
+```
+Jobs table (database.py: db.jobs)
+┌─────────┬────────────────────┬──────────┬──────────────┐
+│ job_id  │ title              │ domain   │ is_active    │
+├─────────┼────────────────────┼──────────┼──────────────┤
+│job-001  │Backend Engineer    │example-…│true          │
+│job-002  │Sr Backend Engineer │northwind-…│true          │
+│job-003  │"URGENT" (unverified)│unknown…│true          │
+└─────────┴────────────────────┴──────────┴──────────────┘
+
+Candidates table (db.candidates)
+┌──────────────┬───────────────┬─────────────────┬──────────────────┐
+│ candidate_id │ anonymized_ref│ extraction (priv)│ disclosure_level │
+├──────────────┼───────────────┼─────────────────┼──────────────────┤
+│uuid-...      │PX-101         │{skills:{...}}    │anonymous         │
+└──────────────┴───────────────┴─────────────────┴──────────────────┘
+
+Applications table (db.applications), keyed by (candidate_id, job_id)
+┌──────────────┬────────┬───────────┬─────────┬───────────────────┐
+│ candidate_id │ job_id │ match     │ proof   │ contact           │
+├──────────────┼────────┼───────────┼─────────┼───────────────────┤
+│uuid-...      │job-001 │{tier:...} │{...}    │null until disclose│
+└──────────────┴────────┴───────────┴─────────┴───────────────────┘
+```
+
+All three tables reset when `python main.py` restarts — see README's
+Future Enhancements for swapping this for a real database.
+
+---
+
+## API response examples
+
+### Candidate registration response
+```json
+{
+  "candidate_id": "3014b969-cff3-439d-8945-219b7981a40d",
+  "anonymized_ref": "PX-101",
+  "cv_source": "pdf",
+  "disclosure_level": "anonymous"
+}
+```
+
+### Application response (before disclosure)
+```json
+{
+  "candidate_ref": "PX-101",
+  "job_id": "job-001",
+  "match": {
+    "candidate_ref": "PX-101",
+    "job_id": "job-001",
+    "criteria": [
+      {"criterion": "python", "required": ">= 3 years", "satisfied": true},
+      {"criterion": "postgresql", "required": "present", "satisfied": true},
+      {"criterion": "aws_certified", "required": "present", "satisfied": true},
+      {"criterion": "education", "required": "bachelors or higher (or equivalent experience)", "satisfied": true}
+    ],
+    "score": 1.0,
+    "tier": "excellent",
+    "overall_match": true
+  },
+  "proof": {
+    "proof_id": "0366053e-...",
+    "verified": true,
+    "claim": "candidate PX-101 scores excellent (100%) against requirements for job-001",
+    "claim_hash": "cd9dbdce...",
+    "generated_at": "2026-08-30T11:08:33.218286+00:00"
+  },
+  "disclosure_level": "anonymous",
+  "contact": null
+}
+```
+
+### After `disclose(level=full_disclosure)`
+```json
+{
+  "...": "...same as above, plus:",
+  "disclosure_level": "full_disclosure",
+  "contact": {"name": "Jordan Ellis", "email": "jordan@example.com", "phone": "555-1234"}
+}
+```
+
+---
+
+## Deployment architecture (future)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                                                                 │
-│                         FRONTEND (React)                         │
-│                    - CV Upload Form                              │
-│                    - Jobs Dashboard                              │
-│                    - Match Results View                          │
-│                                                                 │
-└────────────────────────────────┬────────────────────────────────┘
-                                 │ HTTP
-                                 ▼
-     ┌─────────────────────────────────────────────────┐
-     │                                                 │
-     │         PERSON A: API LAYER (This Project)       │
-     │                    FastAPI                       │
-     │                                                 │
-     │  ┌────────────────────────────────────────┐    │
-     │  │      API Endpoints                     │    │
-     │  ├────────────────────────────────────────┤    │
-     │  │ POST   /api/upload-cv                  │    │
-     │  │ GET    /api/cv-upload/{id}             │    │
-     │  │ GET    /api/employer/jobs              │    │
-     │  │ GET    /api/employer/jobs/{id}         │    │
-     │  │ GET    /api/employer/matching-summary  │    │
-     │  │ GET    /api/employer/proof-result      │    │
-     │  └────────────────────────────────────────┘    │
-     │                        ▼                        │
-     │  ┌────────────────────────────────────────┐    │
-     │  │    CV Processing Pipeline              │    │
-     │  ├────────────────────────────────────────┤    │
-     │  │ 1. Parse CV text                       │    │
-     │  │ 2. Call Person B /extract endpoint    │    │
-     │  │ 3. Validate with Pydantic             │    │
-     │  │ 4. Run Rules Engine                    │    │
-     │  │ 5. Generate Proof Results              │    │
-     │  └────────────────────────────────────────┘    │
-     │                        ▼                        │
-     │  ┌────────────────────────────────────────┐    │
-     │  │    Data Storage (In-Memory Database)   │    │
-     │  ├────────────────────────────────────────┤    │
-     │  │ - Jobs (3 seed items)                 │    │
-     │  │ - CV Uploads (temporary storage)      │    │
-     │  └────────────────────────────────────────┘    │
-     │                                                 │
-     └─────┬─────────────────────────────────────┬────┘
-           │ HTTP (Person B)                     │ HTTP (Midnight)
-           ▼                                     ▼
-    ┌────────────────────┐               ┌──────────────────┐
-    │  PERSON B SERVICE  │               │  MIDNIGHT LAYER  │
-    │ (CV Extraction)    │               │  (ZK Proofs)     │
-    │                    │               │                  │
-    │ POST /extract      │               │ POST /generate   │
-    │ Input: CV text     │               │ Input: Proof req │
-    │ Output: Structured │               │ Output: Proof    │
-    │         CV data    │               │                  │
-    └────────────────────┘               └──────────────────┘
+│  User devices (browser)                                          │
+└──────────────────────────────┬─────────────────────────────────────┘
+                               │ HTTPS
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Frontend (React/Next.js)                                        │
+└──────────────────────────────┬─────────────────────────────────────┘
+                               │ API calls
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Backend/ (FastAPI) — Docker container, auto-scaling             │
+└───────┬──────────────────────┬──────────────────────┬────────────┘
+        │                      │                      │
+        ▼                      ▼                      ▼
+┌──────────────┐    ┌──────────────────┐   ┌───────────────────────┐
+│ ai_service/   │    │ Database          │   │ midnight_service/      │
+│ (Claude calls)│    │ (Postgres/Mongo,  │   │ (real Midnight ZK      │
+│               │    │  replacing        │   │  proofs — not yet      │
+│               │    │  database.py)     │   │  compiled/deployed)    │
+└──────────────┘    └──────────────────┘   └───────────────────────┘
 ```
 
----
-
-## Data Flow Diagram
-
-```
-1. CV UPLOAD
-   Frontend
-     │
-     └─→ POST /api/upload-cv {"cv_text": "..."}
-           │
-           ▼
-   API Layer receives CV
-     │
-     └─→ Generate upload_id
-
-
-2. CV EXTRACTION
-   API Layer
-     │
-     └─→ PersonBClient.extract_cv(cv_text)
-           │
-           └─→ HTTP POST to Person B /extract
-                 │
-                 ▼
-              Person B Service
-                 │
-                 └─→ Structured extraction
-                     {
-                       "skills": [...],
-                       "years_experience": N,
-                       "education_level": "...",
-                       ...
-                     }
-           │
-           └─→ Validate with Pydantic
-                 │
-                 └─→ ExtractedCVData model
-
-
-3. RULES ENGINE EVALUATION
-   API Layer
-     │
-     └─→ For each active job:
-           │
-           ├─→ RulesEngine.evaluate(job_criteria, cv_data)
-           │     │
-           │     ├─→ Check required skills
-           │     ├─→ Check experience level
-           │     ├─→ Check education
-           │     ├─→ Check languages
-           │     ├─→ Check certifications
-           │     │
-           │     └─→ Calculate score & generate result
-           │
-           └─→ RulesEngineResult
-
-
-4. PROOF GENERATION
-   API Layer
-     │
-     └─→ Create ProofResult for each job
-           │
-           ├─→ job_id
-           ├─→ applicant_verified (from job.verification_status)
-           ├─→ cv_data (extracted)
-           ├─→ matching_result (from rules engine)
-           └─→ proof_data (placeholder for Midnight)
-
-
-5. RESPONSE & STORAGE
-   API Layer
-     │
-     ├─→ Save to database (cv_uploads)
-     │
-     └─→ Return CVUploadResponse
-           │
-           ├─→ upload_id
-           ├─→ extracted_data
-           ├─→ matching_results[]
-           └─→ proof_results[]
-
-
-6. DASHBOARD ACCESS
-   Frontend/Employer
-     │
-     ├─→ GET /api/employer/matching-summary/{upload_id}
-     │     │
-     │     └─→ Sorted by score, ready for display
-     │
-     └─→ GET /api/employer/proof-result/{upload_id}
-           │
-           └─→ Proof verification data
-```
-
----
-
-## Component Interaction
-
-```
-┌──────────────────┐
-│     main.py      │  ← Entry point, FastAPI setup
-└────────┬─────────┘
-         │
-    ┌────┴─────────────────────────────────┐
-    │                                      │
-    ▼                                      ▼
-┌──────────────────┐        ┌──────────────────┐
-│  config.py       │        │  database.py     │
-│ Settings from    │        │ In-memory storage│
-│ .env file        │        │ + seed data      │
-└──────────────────┘        └──────────────────┘
-    ▲                            ▲
-    │                            │
-    └────────────┬───────────────┘
-                 │
-    ┌────────────▼─────────────┐
-    │      models.py           │  ← Pydantic schemas
-    │  (8 data models)         │
-    └────────────┬─────────────┘
-                 │
-    ┌────────────▼─────────────────────────────┐
-    │                                          │
-    │   ┌──────────────────────────────────┐  │
-    │   │  api/cv_processing.py            │  │
-    │   │  - POST /upload-cv               │  │
-    │   │  - GET  /cv-upload/{id}          │  │
-    │   └──────────┬───────────────────────┘  │
-    │              │                          │
-    │              ├─→ PersonBClient ────────→ Person B Service
-    │              │                          (Extract CV)
-    │              ├─→ RulesEngine           
-    │              │   (Match CV to jobs)     
-    │              │                          │
-    │   ┌──────────▼───────────────────────┐  │
-    │   │  api/employer_dashboard.py       │  │
-    │   │  - GET /employer/jobs            │  │
-    │   │  - GET /employer/matching-summary│  │
-    │   │  - GET /employer/proof-result    │  │
-    │   └──────────────────────────────────┘  │
-    │                                          │
-    │            (routes aggregated)           │
-    │                                          │
-    └──────────────────────────────────────────┘
-```
-
----
-
-## Rules Engine Algorithm
-
-```
-Input: Job Criteria + Extracted CV Data
-       ↓
-
-┌─────────────────────────────────────┐
-│  SKILL MATCHING                     │
-├─────────────────────────────────────┤
-│ Required: ["Python", "FastAPI",     │
-│            "PostgreSQL", "Docker"]  │
-│                                     │
-│ CV Has: ["Python", "FastAPI",       │
-│         "PostgreSQL", "Docker",     │
-│         "Linux", "Git"]             │
-│                                     │
-│ Result: 4/4 skills matched ✓        │
-└─────────────────────────────────────┘
-       ↓
-
-┌─────────────────────────────────────┐
-│  EXPERIENCE MATCHING                │
-├─────────────────────────────────────┤
-│ Required: 5+ years                  │
-│ CV Has: 6 years                     │
-│                                     │
-│ Result: 6 >= 5 ✓                    │
-└─────────────────────────────────────┘
-       ↓
-
-┌─────────────────────────────────────┐
-│  EDUCATION & OTHER CRITERIA         │
-├─────────────────────────────────────┤
-│ Required education: Bachelor's      │
-│ CV Has: Bachelor's in CS ✓          │
-│                                     │
-│ Required languages: English         │
-│ CV Has: English, Spanish ✓          │
-│                                     │
-│ Certifications: Optional            │
-│ CV Has: AWS, Docker ✓               │
-└─────────────────────────────────────┘
-       ↓
-
-┌─────────────────────────────────────┐
-│  SCORE CALCULATION                  │
-├─────────────────────────────────────┤
-│ Total Criteria: 7                   │
-│ Met Criteria: 7                     │
-│                                     │
-│ Score = (7 / 7) × 100 = 100%       │
-└─────────────────────────────────────┘
-       ↓
-
-┌─────────────────────────────────────┐
-│  DECISION                           │
-├─────────────────────────────────────┤
-│ Matches: true                       │
-│ Score: 100%                         │
-│ Level: "Excellent match"            │
-│                                     │
-│ Reasoning: "Candidate meets         │
-│  nearly all requirements"           │
-└─────────────────────────────────────┘
-
-Output: RulesEngineResult
-```
-
----
-
-## Match Score Interpretation
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ SCORE RANGES & MEANINGS                                 │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  90-100% │ ▓▓▓▓▓▓▓▓░░  EXCELLENT MATCH                 │
-│          │            → Candidate meets nearly all    │
-│          │              requirements. Proceed with     │
-│          │              interest.                      │
-│          │                                             │
-│  75-89%  │ ▓▓▓▓▓▓░░░░  GOOD MATCH                      │
-│          │            → Candidate meets most key      │
-│          │              requirements. Consider for     │
-│          │              interviews.                    │
-│          │                                             │
-│  60-74%  │ ▓▓▓▓░░░░░░  PARTIAL MATCH                  │
-│          │            → Candidate meets some          │
-│          │              requirements. May need         │
-│          │              training in some areas.       │
-│          │                                             │
-│  <60%    │ ▓░░░░░░░░░  POOR MATCH                     │
-│          │            → Candidate missing critical    │
-│          │              requirements. Not             │
-│          │              recommended.                   │
-│          │                                             │
-└─────────────────────────────────────────────────────────┘
-```
-
----
-
-## Error Handling Flow
-
-```
-Upload CV
-    │
-    ├─→ Person B Connection Error
-    │   └─→ Return 500: "Failed to call Person B service"
-    │
-    ├─→ Invalid Response Schema
-    │   └─→ Return 422: "Invalid response schema from Person B"
-    │
-    ├─→ Invalid Upload ID
-    │   └─→ Return 404: "Upload X not found"
-    │
-    ├─→ Invalid Job ID
-    │   └─→ Return 404: "Job X not found"
-    │
-    └─→ Success
-        └─→ Return 200 with CVUploadResponse
-```
-
----
-
-## Database Schema (In-Memory)
-
-```
-Jobs Table:
-┌──────────┬──────────────────────┬─────────────┬──────┐
-│ job_id   │ title                │ verification│active│
-├──────────┼──────────────────────┼─────────────┼──────┤
-│job-001   │Senior Python Dev     │verified     │true  │
-│job-002   │JS Full Stack Dev     │verified     │true  │
-│job-003   │Data Science Engineer │unverified   │true  │
-└──────────┴──────────────────────┴─────────────┴──────┘
-
-CV Uploads Table:
-┌────────────────────┬─────────┬──────────┬──────────┐
-│upload_id           │extracted│matching_ │proof_    │
-│                    │data     │results   │results   │
-├────────────────────┼─────────┼──────────┼──────────┤
-│uuid-1234-5678-9012 │{...data}│[results] │[proofs]  │
-│uuid-9876-5432-1098 │{...data}│[results] │[proofs]  │
-└────────────────────┴─────────┴──────────┴──────────┘
-```
-
----
-
-## API Response Examples
-
-### Upload CV Response
-```json
-{
-  "upload_id": "abc-123-def-456",
-  "extracted_data": {
-    "skills": ["Python", "FastAPI", "PostgreSQL"],
-    "years_experience": 6,
-    "education_level": "Bachelor's in Computer Science",
-    "languages": ["English", "Spanish"],
-    "certifications": ["AWS"]
-  },
-  "matching_results": [
-    {
-      "job_id": "job-001",
-      "matches": true,
-      "score": 95.5,
-      "missing_requirements": [],
-      "matched_requirements": ["Has required skill: Python", ...],
-      "reasoning": "Excellent match (95.5% match rate)..."
-    }
-  ],
-  "proof_results": [...]
-}
-```
-
-### Matching Summary Response
-```json
-{
-  "upload_id": "abc-123-def-456",
-  "total_jobs": 3,
-  "matched_jobs": 1,
-  "matches": [
-    {
-      "job_id": "job-001",
-      "job_title": "Senior Python Developer",
-      "company": "TechCorp Inc",
-      "matches": true,
-      "score": 95.5,
-      "reasoning": "Excellent match...",
-      "missing_requirements": []
-    },
-    {
-      "job_id": "job-002",
-      "job_title": "Full Stack JavaScript Developer",
-      "matches": false,
-      "score": 15.0,
-      "reasoning": "Poor match...",
-      "missing_requirements": ["Missing required skill: JavaScript", ...]
-    }
-  ]
-}
-```
-
----
-
-## Deployment Architecture (Future)
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  User Devices (Browser)                                 │
-└──────────────────┬──────────────────────────────────────┘
-                   │ HTTPS
-                   ▼
-┌─────────────────────────────────────────────────────────┐
-│  Frontend (React/Next.js)                               │
-│  - Hosted on CDN or server                              │
-└──────────────────┬──────────────────────────────────────┘
-                   │ API Calls
-                   ▼
-┌─────────────────────────────────────────────────────────┐
-│  API Server (FastAPI - Person A)                        │
-│  - Docker container                                     │
-│  - Kubernetes or serverless                             │
-│  - Auto-scaling enabled                                │
-└──────────────────┬──────────────────────────────────────┘
-                   │
-    ┌──────────────┼──────────────┐
-    │              │              │
-    ▼              ▼              ▼
-┌────────┐   ┌────────┐   ┌────────────┐
-│Person B│   │Database│   │Midnight    │
-│(CV     │   │(Postgres│   │Layer       │
-│Extract)│   │or Mongo)│   │(ZK Proofs) │
-└────────┘   └────────┘   └────────────┘
-```
-
-This completes the VeriHire API Layer architecture! 🎉
+This completes the VeriHire architecture overview.

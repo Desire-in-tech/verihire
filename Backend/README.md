@@ -1,290 +1,307 @@
 # VeriHire API Layer
 
-This is the API Layer for the VeriHire recruitment verification system. It receives CVs, calls Person B's extraction service, runs a rules engine for job matching, and interfaces with the Midnight layer for zero-knowledge proofs.
+VeriHire is a recruitment-verification system built around one idea:
+**AI extracts a candidate's credentials, deterministic rules decide if
+they match a job, and Midnight proves the match without revealing the
+underlying data.** A candidate stays anonymous to an employer until they
+explicitly choose to disclose contact info.
+
+This directory (`Backend/`) is the API layer that ties the pieces
+together. It works alongside a separate `ai_service/` (CV/job-description
+extraction) and, optionally, `midnight_service/` (real Midnight ZK
+proofs) — see [Related services](#related-services) below.
 
 ## Architecture
 
 ```
-Frontend (CV Upload)
-    ↓
-API Layer (FastAPI) ← Person B Service (CV Extraction)
-    ↓
-Rules Engine (Job Matching)
-    ↓
-Midnight Layer (ZK Proofs)
-    ↓
-Employer Dashboard 
+Candidate (PDF or pasted text)          Employer (free-text job description)
+        │                                          │
+        ▼                                          ▼
+  Backend: POST /api/candidates          Backend: POST /api/jobs
+        │  (pdfplumber extracts text          │  (calls ai_service /parse-job,
+        │   from a PDF, if given)             │   calls employer_verification.py)
+        ▼                                          ▼
+  ai_client.py → ai_service POST /extract   JobPosting stored, with
+        │  (structured ExtractionResult:          verification badges
+        │   skills/certs/education)
+        ▼
+  candidate stored, anonymized_ref returned (e.g. "PX-104")
+        │
+        ▼
+  POST /api/candidates/{id}/apply/{job_id}
+        │
+        ├─→ rules_engine.evaluate()  →  MatchResult (per-criterion checklist,
+        │                                 score 0.0-1.0, tier: excellent/
+        │                                 good/average/poor)
+        │
+        └─→ midnight_client.generate_proof()  →  ProofResult
+              │
+              ├─ MIDNIGHT_SERVICE_URL set  → real Midnight service (mock today —
+              │                               see midnight_service/README.md)
+              └─ unset (default)           → midnight_mock.py (offline stand-in)
+        │
+        ▼
+  ApplicationResult returned: anonymized ref, tier, checklist, proof.
+  No name, email, or phone — until the candidate calls
+  POST /api/candidates/{id}/disclose/{job_id}, which is the only thing
+  that ever releases contact info, and only to that one job's employer.
 ```
 
-## Project Structure
+## Project structure
 
 ```
 Backend/
-├── main.py                      # FastAPI application entry point
-├── config.py                   # Configuration management
-├── models.py                   # Pydantic data models
-├── database.py                 # In-memory database with seed data
-├── rules_engine.py             # Job matching rules engine
-├── person_b_client.py          # Client for Person B's service
+├── main.py                    # FastAPI application entry point
+├── config.py                  # Configuration management (AI_SERVICE_URL, MIDNIGHT_SERVICE_URL)
+├── models.py                  # Pydantic data models
+├── database.py                # In-memory storage (jobs, candidates, applications) + seed data
+├── rules_engine.py            # Deterministic candidate-vs-job matching + tier grading
+├── ai_client.py                # HTTP client for the separate ai_service (CV/job extraction)
+├── employer_verification.py   # Mocked employer/domain verification registry
+├── midnight_client.py         # Picks real Midnight service vs. offline mock
+├── midnight_mock.py           # The offline mock (what actually runs today)
 ├── api/
 │   ├── __init__.py
-│   ├── router.py               # Router aggregation
-│   ├── cv_processing.py        # CV upload and processing endpoints
-│   └── employer_dashboard.py   # Employer dashboard endpoints
+│   ├── candidates.py          # Candidate registration (PDF or text), apply, disclose
+│   ├── jobs.py                 # Job listing/creation, employer/domain verification
+│   └── employers.py           # Employer's view of who applied to their job
 ├── data/
-│   ├── seed_jobs.json          # Sample jobs with criteria
-│   └── seed_cvs.json           # Sample CV data
-├── requirements.txt            # Python dependencies
+│   └── seed_jobs.json          # 3 seed job postings (verified, verified, deliberately unverified)
+├── requirements.txt
 ├── .env                        # Environment configuration
 ├── .gitignore
-├── VeriHire_API_Collection.postman_collection.json  # Postman test collection
+├── VeriHire_API_Collection.postman_collection.json
 └── README.md
 ```
 
+## Related services
+
+This API layer doesn't do CV extraction or ZK proofs itself — it delegates
+to two sibling services at the repo root:
+
+- **`../ai_service/`** — a FastAPI service with `POST /extract` (CV text →
+  structured skills/certifications/education) and `POST /parse-job` (job
+  description → structured requirements). Calls Claude via the Anthropic
+  API if `ANTHROPIC_API_KEY` is set; otherwise falls back to an offline
+  keyword extractor, so it runs without a key. See `../ai_service/README`
+  in its own directory (or its `app/` docstrings) for details.
+- **`../midnight_service/`** and **`../contract/verihire.compact`** — a
+  real Compact smart contract and a Node/TypeScript service that would
+  call it. **Not yet compiled or deployed** — see
+  `../midnight_service/README.md` for the toolchain needed (Compact
+  compiler, local proof server, testnet RPC, funded wallet). Until
+  `MIDNIGHT_SERVICE_URL` is set and pointed at a real running instance,
+  every proof in this app comes from `midnight_mock.py`.
+
 ## Dependencies
 
-- **FastAPI**: Web framework for building APIs
-- **Uvicorn**: ASGI server
-- **Pydantic**: Data validation and settings management
-- **httpx**: Async HTTP client for calling Person B's service
+- **FastAPI** — web framework
+- **Uvicorn** — ASGI server
+- **Pydantic / pydantic-settings** — data validation and settings
+- **httpx** — async/sync HTTP client for calling `ai_service` and (optionally) `midnight_service`
+- **pdfplumber** — PDF text extraction
+- **python-multipart** — multipart form/file upload support
 
 ## Setup
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
 ```bash
 cd Backend
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
+### 2. Configure environment
 
-Edit `.env` file if needed:
+Edit `.env` if needed:
 ```
-PERSON_B_SERVICE_URL=http://localhost:8001
-MIDNIGHT_LAYER_URL=http://localhost:8002
+AI_SERVICE_URL=http://localhost:8001
+
+# Leave blank to use the offline mock proof. Set once midnight_service/ is
+# actually running to switch on real Midnight proofs.
+MIDNIGHT_SERVICE_URL=
 ```
 
-### 3. Run the Server
+### 3. Run both services
 
 ```bash
+# terminal 1 — AI extraction service
+cd ai_service
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8001
+
+# terminal 2 — this API layer
+cd Backend
+pip install -r requirements.txt
 python main.py
 ```
 
-The API will be available at `http://localhost:8000`
-
-API documentation will be at `http://localhost:8000/docs` (Swagger UI)
+The API is available at `http://localhost:8000`, docs at
+`http://localhost:8000/docs` (Swagger) and `/redoc`. `ai_service` docs are
+at `http://localhost:8001/docs`.
 
 ## Features
 
-### 1. CV Upload Endpoint (`POST /api/upload-cv`)
+### 1. Candidate registration (`POST /api/candidates`)
 
-Upload CV as PDF file and:
-1. Validates PDF payload format
-2. Forwards raw PDF bytes to Person B's LMM agent `/extract` endpoint
-3. Validates response with Pydantic
-4. Runs rules engine against all jobs
-5. Returns matching results and proof placeholders
+Accepts **either** a PDF file upload **or** raw CV text — exactly one of
+the two:
 
-**Request (multipart/form-data):**
+**As a PDF (multipart/form-data):**
 ```
 - file: PDF file upload
-- job_id: (optional) string
+- name, email, phone: optional form fields
 ```
 
-**Response includes:**
-- `cv_source: "pdf"` - Indicates PDF source
-- `extracted_text` - `null` (text extraction is delegated to Person B)
-- `extracted_data` - Parsed CV data from Person B
-- `matching_results` - Job matches with scores
-- `proof_results` - Proof verification data
-
-### 2. Rules Engine
-
-The rules engine evaluates CVs against job criteria by checking:
-
-- **Required Skills**: Exact skill match required
-- **Years of Experience**: Must meet minimum
-- **Education Level**: Soft requirement with flexibility
-- **Languages**: Required languages must be present
-- **Certifications**: Optional but scored
-
-**Match Score Calculation:**
-- 90-100%: Excellent match
-- 75-89%: Good match
-- 60-74%: Partial match
-- <60%: Poor match
-
-### 3. Employer Dashboard Endpoints
-
-#### `GET /api/employer/jobs`
-List all active jobs
-
-#### `GET /api/employer/jobs/{job_id}`
-Get details for a specific job
-
-#### `GET /api/employer/matching-summary/{upload_id}`
-Get a summary of how a CV matches all jobs (sorted by score)
-
-#### `GET /api/employer/proof-result/{upload_id}`
-Get proof result from Midnight layer for employer verification
-
-## Seed Data
-
-The system comes with 3 sample jobs and 4 sample CVs:
-
-### Jobs:
-1. **job-001**: Senior Python Developer (verified) - Needs 5+ years, Python, FastAPI, PostgreSQL, Docker
-2. **job-002**: Full Stack JavaScript Developer (verified) - Needs 3+ years, JavaScript, React, Node.js, AWS
-3. **job-003**: Data Science Engineer (unverified) - Needs 4+ years, Python, ML, Statistics, Spark, SQL, Master's degree
-
-### CVs:
-1. **Alice Johnson** - 6 years, Python/FastAPI/PostgreSQL/Docker specialist → Matches job-001 (95%+)
-2. **Bob Smith** - 4 years, JavaScript/React/Node.js/AWS specialist → Matches job-002 (80%+)
-3. **Charlie Davis** - 2 years, junior developer → Poor match for senior roles
-4. **Diana Chen** - 5 years, Data Science Master's with ML expertise → Matches job-003 (90%+)
-
-## Testing with Postman
-
-### Import Collection
-
-1. Open Postman
-2. Click "Import" → Select `VeriHire_API_Collection.postman_collection.json`
-3. The collection will load with pre-configured requests
-
-### Test Flow
-
-1. **Health Check** - Verify API is running
-   ```
-   GET /health
-   ```
-   Expected: `{"status": "healthy"}`
-
-2. **Get Jobs** - List available jobs
-   ```
-   GET /api/employer/jobs
-   ```
-
-3. **Upload CV** - Test CV processing (3 test cases included)
-   ```
-   POST /api/upload-cv
-   ```
-   Response will include `upload_id`
-
-4. **Get Results** - Retrieve CV processing results
-   ```
-   GET /api/cv-upload/{upload_id}
-   ```
-   Use the `upload_id` from step 3
-
-5. **Get Matching Summary** - Dashboard view of matches
-   ```
-   GET /api/employer/matching-summary/{upload_id}
-   ```
-
-6. **Get Proof Result** - Verification results
-   ```
-   GET /api/employer/proof-result/{upload_id}
-   ```
-
-### Test Cases
-
-**Test 1: Strong Match**
-- Upload Senior Python Developer CV
-- Should match job-001 with 95%+ score
-- All required skills present
-
-**Test 2: Poor Match**
-- Upload Junior Developer CV
-- Should not match job-001
-- Missing years of experience and skills
-
-**Test 3: Good Match**
-- Upload Full Stack JS CV
-- Should match job-002 with 80%+ score
-- Some optional requirements missing
-
-## Integration Points
-
-### Person B Service Integration
-
-The API calls Person B's LMM `/extract` endpoint with multipart PDF payload:
-
-```python
-async def extract_cv_from_text(pdf_content: bytes, filename: str = "cv.pdf") -> ExtractedCVData:
-    response = await client.post(
-        f"{LMM_AGENT_URL}/extract",
-        files={"cv_pdf": (filename, pdf_content, "application/pdf")}
-    )
-    return ExtractedCVData(**response.json())  # Validated with Pydantic
+**As raw text (multipart/form-data, no file):**
+```
+- cv_text: string
+- name, email, phone: optional form fields
 ```
 
-**Expected Response Schema from Person B:**
-```json
-{
-  "skills": ["Python", "FastAPI"],
-  "years_experience": 6,
-  "education_level": "Bachelor's in Computer Science",
-  "languages": ["English"],
-  "certifications": []
-}
-```
+A PDF is run through `pdfplumber` to extract its text first; both paths
+then call `ai_client.extract_cv()` (real Claude call or offline fallback,
+depending on `ai_service`'s configuration) to turn the text into a
+structured `ExtractionResult`. The response never includes the raw CV
+text, name, email, phone, or extracted credentials — only a
+`candidate_id` and an `anonymized_ref` (e.g. `"PX-104"`), which is all a
+caller needs to continue the flow.
 
-### Midnight Layer Integration
+### 2. Applying to a job (`POST /api/candidates/{id}/apply/{job_id}`)
 
-The API prepares proof results with placeholders for the Midnight layer:
+Runs the rules engine (see below) and then Midnight proof generation
+(real or mocked), and returns an `ApplicationResult`: the candidate's
+anonymized ref, the `MatchResult` (per-criterion checklist + score + tier),
+the `ProofResult`, and `contact: null` — no personal information at this
+stage.
 
-```python
-proof_result = ProofResult(
-    job_id=job.job_id,
-    applicant_verified=job.verification_status.value == "verified",
-    cv_data=extracted_data,
-    matching_result=rules_result,
-    proof_data=None  # Will be populated by Midnight layer
-)
-```
+### 3. Rules engine
 
-## API Documentation
+Evaluates a candidate's `ExtractionResult` against a job's
+`JobRequirements`:
 
-Once running, access the interactive API docs at:
-- **Swagger UI**: `http://localhost:8000/docs`
-- **ReDoc**: `http://localhost:8000/redoc`
+- **Skills**: each required skill maps to a minimum years figure (`0`
+  means "must simply be present"). The candidate's `skills` dict is
+  checked per-skill.
+- **Certifications**: each required certification must appear in the
+  candidate's certification list.
+- **Education**: compared against an ordered scale (`none` <
+  `highschool` < `bachelors` < `masters` < `phd`); `equivalent_experience`
+  always satisfies any requirement.
 
-## Common Issues
+**Grading** (`score` = fraction of criteria satisfied, `tier` derived from it):
+- All criteria met → **excellent**
+- `score >= 0.75` → **good**
+- `score >= 0.5` → **average**
+- otherwise → **poor**
 
-### Person B Service Connection Error
-- Check that Person B/LMM agent is running on the configured URL
-- Verify `/extract` endpoint accepts multipart PDF uploads (`cv_pdf` file field)
+`overall_match` is `true` only when every criterion is satisfied.
 
-### Pydantic Validation Error
-- Ensure Person B returns exactly the schema defined in `models.ExtractedCVData`
-- Check for extra/missing fields or incorrect types
+### 4. Midnight proof (`midnight_client.py`)
 
-### Upload ID Not Found
-- Verify the upload_id is correct and matches from the upload response
-- Upload data is stored in-memory, so it's lost on server restart
+- `MIDNIGHT_SERVICE_URL` unset (default) → `midnight_mock.py` generates a
+  same-shaped fake proof (`verified` mirrors the rules engine's own
+  verdict) — no network call, no real cryptography.
+- `MIDNIGHT_SERVICE_URL` set → POSTs the candidate's private extraction
+  data plus the job's public requirements to that service's `/prove`
+  endpoint. On any failure, falls back to the mock rather than breaking
+  the request.
+- The private inputs sent are deliberately the **raw** values (skills,
+  certs, education), not the already-computed match booleans — a real
+  Midnight circuit needs to do its own private computation for the proof
+  to mean anything. See `midnight_client.py`'s docstring and
+  `../contract/verihire.compact` for exactly which four criteria the
+  current circuit shape covers (Python years, PostgreSQL presence, AWS
+  certification, Bachelor's-or-equivalent) — a known MVP limitation for
+  jobs that need other criteria.
 
-## Future Enhancements
+### 5. Progressive disclosure (`POST /api/candidates/{id}/disclose/{job_id}`)
 
-- [ ] Persistent database (PostgreSQL/MongoDB)
-- [ ] Real Midnight layer integration for ZK proofs
-- [ ] Job criteria versioning
-- [ ] Detailed audit logs
-- [ ] Batch CV processing
-- [ ] Advanced rules engine with weighted criteria
-- [ ] Admin API for managing jobs
+The candidate explicitly moves their disclosure level forward
+(`anonymous` → `verified_candidate` → `full_disclosure`) for one specific
+application. Only reaching `full_disclosure` populates `contact` with
+name/email/phone — and only for that one job. Nothing else in the system
+escalates disclosure automatically.
 
-## Development
+### 6. Employer verification (`POST /api/jobs`, `POST /api/jobs/verify-external`)
 
-To modify the rules engine, edit [rules_engine.py](rules_engine.py):
+`employer_verification.py` checks a company/domain against a small
+hardcoded "known good" registry. Posting a job (`POST /api/jobs`) runs
+both this check and `ai_service`'s `/parse-job` extraction, and stores the
+result alongside the job. `POST /api/jobs/verify-external` runs the same
+check for a company/domain that isn't even posted on VeriHire — useful for
+a candidate to sanity-check a suspicious-looking listing before engaging
+with it at all.
 
-```python
-@staticmethod
-def evaluate(job_id: str, job_criteria: JobCriteria, cv_data: ExtractedCVData) -> RulesEngineResult:
-    # Add custom logic here
-```
+### 7. Employer's view of applicants (`GET /api/employers/jobs/{job_id}/candidates`)
 
-To add new jobs, edit [data/seed_jobs.json](data/seed_jobs.json) or use a database migration.
+Returns every `ApplicationResult` for a job. `contact` is stripped for any
+candidate below `full_disclosure`, even though `disclose()` only ever
+populates it at that level — belt and suspenders.
+
+## Seed data
+
+Three seed jobs ship in `data/seed_jobs.json`, chosen to demonstrate both
+the matching and the verification stories:
+
+1. **job-001** — Backend Engineer, Example Technologies (verified employer).
+   Requires 3+ years Python, PostgreSQL, AWS, an AWS certification, and a
+   Bachelor's or equivalent.
+2. **job-002** — Senior Backend Engineer, Northwind Systems (verified
+   employer). Requires 5+ years Python, 2+ years PostgreSQL, Docker,
+   Kubernetes.
+3. **job-003** — "Senior Backend Developer — URGENT, $5,000/month",
+   UnknownCompany123 (**deliberately unverified** — every verification
+   flag is `false`). This is the "suspicious job" demo scenario: a
+   candidate checking this listing via `GET /api/jobs` or
+   `POST /api/jobs/verify-external` immediately sees it's unverified,
+   before ever sending a CV.
+
+A sample CV and job description for manual testing live in
+`../ai_service/samples/`.
+
+## API endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/health` | Health check (also reports jobs loaded) |
+| POST | `/api/candidates` | Register a candidate from a PDF or raw CV text |
+| POST | `/api/candidates/{id}/apply/{job_id}` | Apply to a job — match + proof |
+| POST | `/api/candidates/{id}/disclose/{job_id}` | Escalate disclosure for one application |
+| GET | `/api/jobs` | List all active jobs |
+| GET | `/api/jobs/{job_id}` | Get one job's details |
+| POST | `/api/jobs` | Create a job posting (runs AI #2 + employer verification) |
+| POST | `/api/jobs/verify-external` | Check a company/domain not posted on VeriHire |
+| GET | `/api/employers/jobs/{job_id}/candidates` | Employer's view of applicants for their job |
+
+## Testing
+
+See [TESTING_GUIDE.md](TESTING_GUIDE.md) for step-by-step scenarios, and
+`VeriHire_API_Collection.postman_collection.json` for a Postman collection.
+
+## Common issues
+
+### AI service connection error
+- Check that `ai_service` is running on the URL configured in `AI_SERVICE_URL` (default `http://localhost:8001`).
+- Without `ANTHROPIC_API_KEY` set on `ai_service`, it silently falls back to offline keyword extraction — this is expected, not an error, but extraction quality will be much rougher.
+
+### Pydantic validation error
+- `ai_service` and this backend independently define `ExtractionResult`/`JobRequirements` (see `models.py`'s module docstring for why) — if you change one, change the other, and check the repo-root `SCHEMA_CONTRACT.md`... *(not yet ported into this repo — see Future Enhancements below)*.
+
+### Candidate/job/application not found
+- All storage is in-memory (`database.py`) — restarting `python main.py` clears everything. `candidate_id`, `job_id`, and disclosure state all reset.
+
+### Every proof comes back `verified: true/false` but never talks to a real blockchain
+- Expected until `midnight_service/` is actually compiled, deployed, and `MIDNIGHT_SERVICE_URL` is set — see [Related services](#related-services).
+
+## Future enhancements
+
+- [ ] Persistent database (PostgreSQL/MongoDB) in place of `database.py`'s in-memory dicts
+- [ ] Actually stand up `midnight_service/` (Compact compiler, proof server, funded testnet wallet) and set `MIDNIGHT_SERVICE_URL`
+- [ ] Port `SCHEMA_CONTRACT.md` into this repo so the AI-shared model contract has one home
+- [ ] Generalize the Midnight circuit beyond the current fixed four criteria
+- [ ] Real employer/domain verification (DNS ownership, verified email) in place of the hardcoded registry
+- [ ] Authentication on the employer-facing endpoints
 
 ## License
 

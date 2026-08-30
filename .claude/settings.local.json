@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\tjhazard\\\\midnight-project\\\\verihire\\\\Backend\" *)",
+      "Bash(cd \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\tjhazard\\\\midnight-project\\\\verihire\\\\Backend\")",
+      "Bash(/c/Python313/python -c ' *)",
+      "Bash(cd \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\tjhazard\\\\midnight-project\\\\verihire\\\\ai_service\")",
+      "Bash(/c/Python313/python -c \"import anthropic; print\\('anthropic OK', anthropic.__version__\\)\")",
+      "Bash(/c/Python313/python -m pip install --quiet anthropic)",
+      "Bash(/c/Python313/python \"C:\\\\Users\\\\USER\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\--wsl-localhost-Ubuntu-home-tjhazard-midnight-project-verihire\\\\31965cd8-5617-4226-9f68-46599162bc42\\\\scratchpad\\\\smoke_test.py\")",
+      "Bash(curl -s -m 3 http://127.0.0.1:8001/health)",
+      "Bash(echo \"exit: $?\")"
+    ]
+  }
+}

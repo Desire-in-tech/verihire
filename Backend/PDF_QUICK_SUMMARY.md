@@ -1,270 +1,100 @@
-# 📄 PDF Upload Feature - Quick Summary
+# PDF Upload — Quick Summary
 
-## What Changed?
+## What it is
 
-The VeriHire API now supports **PDF file uploads** for CVs in addition to plain text!
+`POST /api/candidates` accepts a candidate's CV as **either** a PDF file
+upload **or** raw pasted text — not two separate endpoints, one endpoint
+with two mutually-exclusive input modes.
 
-### New Endpoint
 ```
-POST /api/upload-cv-pdf
+POST /api/candidates
 Content-Type: multipart/form-data
 
-Parameters:
-- file: PDF file (required)
-- job_id: string (optional)
+Exactly one of:
+- file: PDF file
+- cv_text: string
+
+Plus optional:
+- name, email, phone
 ```
 
-### Processing Flow
+## How it works
+
 ```
-PDF File Upload
-    ↓
-1. Validate PDF format
-2. Extract text from PDF
-3. Send to Person B /extract
-4. Run rules engine
-5. Return results
-```
-
-## Files Modified/Created
-
-### Created (1 new file)
-- ✅ `pdf_processor.py` - PDF extraction utility
-
-### Created (1 new doc)
-- ✅ `PDF_UPLOAD_FEATURE.md` - Detailed PDF feature documentation
-
-### Updated (4 files)
-1. ✅ `requirements.txt` - Added `pdfplumber` + `python-multipart`
-2. ✅ `models.py` - Added `cv_source` + `extracted_text` fields
-3. ✅ `api/cv_processing.py` - Added `/api/upload-cv-pdf` endpoint
-4. ✅ `README.md` - Documented new endpoint
-
-## Dependencies Added
-
-```text
-pdfplumber==0.10.3      # PDF text extraction
-python-multipart==0.0.6 # File upload support
+PDF given?
+  ├─ yes → pdfplumber extracts text from every page (api/candidates.py)
+  └─ no  → cv_text used directly
+              │
+              ▼
+     ai_client.extract_cv(text)  →  ai_service POST /extract
+              │
+              ▼
+     CandidateProfile stored, response returns candidate_id + anonymized_ref
 ```
 
-Install with:
+## Using curl
+
 ```bash
-pip install -r requirements.txt
+# PDF
+curl -X POST http://localhost:8000/api/candidates \
+  -F "file=@your_cv.pdf" -F "name=Alex Rivera"
+
+# Raw text
+curl -X POST http://localhost:8000/api/candidates \
+  -F "cv_text=4 years Python, PostgreSQL, AWS certified, Bachelor's degree." \
+  -F "name=Alex Rivera"
 ```
 
-## New Features
+## Using JavaScript/React
 
-✅ **PDF Text Extraction** - Automatically extracts text from PDF files
-✅ **Multi-page Support** - Handles PDFs with multiple pages
-✅ **Validation** - Checks PDF format and validity
-✅ **Error Handling** - Clear error messages for invalid PDFs
-✅ **Backward Compatible** - Old text endpoint still works
-
-## New API Endpoint
-
-### `POST /api/upload-cv-pdf` - Upload PDF CV
-
-**Using Postman:**
-1. Import `VeriHire_API_Collection.postman_collection.json`
-2. Select "Upload CV - PDF Test"
-3. Add your PDF file
-4. Send request
-
-**Using curl:**
-```bash
-curl -X POST http://localhost:8000/api/upload-cv-pdf \
-  -F "file=@your_cv.pdf" \
-  -F "job_id=job-001"
-```
-
-**Using Python:**
-```python
-import requests
-
-with open('cv.pdf', 'rb') as f:
-    files = {'file': f}
-    response = requests.post(
-        'http://localhost:8000/api/upload-cv-pdf',
-        files=files
-    )
-    print(response.json())
-```
-
-**Using JavaScript/React:**
 ```javascript
 const formData = new FormData();
-formData.append('file', pdfFile);
-formData.append('job_id', 'job-001');
+formData.append("file", pdfFile); // from <input type="file" accept=".pdf">
+formData.append("name", "Alex Rivera");
 
-const response = await fetch('/api/upload-cv-pdf', {
-  method: 'POST',
-  body: formData
+const response = await fetch("/api/candidates", {
+  method: "POST",
+  body: formData, // don't set Content-Type - the browser sets the multipart boundary
 });
-
-const result = await response.json();
+const candidate = await response.json();
+// { candidate_id, anonymized_ref, cv_source: "pdf", disclosure_level: "anonymous" }
 ```
 
-## Response Format
+## Response
 
-Both `/api/upload-cv` and `/api/upload-cv-pdf` return the same response:
-
+Both input modes return the same shape — `cv_source` tells you which path was taken:
 ```json
 {
-  "upload_id": "abc-123",
-  "cv_source": "pdf",  // ← NEW: "pdf" or "text"
-  "extracted_text": "Alice Johnson\n\nSkills: Python...",  // ← NEW: raw PDF text
-  "extracted_data": {
-    "skills": ["Python", "FastAPI"],
-    "years_experience": 6,
-    ...
-  },
-  "matching_results": [...],
-  "proof_results": [...]
+  "candidate_id": "3014b969-...",
+  "anonymized_ref": "PX-101",
+  "cv_source": "pdf",
+  "disclosure_level": "anonymous"
 }
 ```
 
-## Error Handling
+No name, email, phone, extracted text, or structured extraction is
+returned — the response is deliberately minimal.
 
-Clean error messages for common issues:
+## Error handling
 
-```
-❌ "File must be a PDF" 
-   → Filename doesn't end in .pdf
+| Condition | Response |
+|---|---|
+| Neither `file` nor `cv_text` given | 422 "Provide either a PDF file or cv_text" |
+| Both given | 422 "Provide either a PDF file or cv_text, not both" |
+| Filename doesn't end in `.pdf` | 422 "File must be a PDF" |
+| Empty file | 422 "PDF file is empty" |
+| Invalid PDF signature | 422 "File is not a valid PDF" |
+| No extractable text (e.g. scanned image) | 422 "No extractable text found in PDF..." |
+| `ai_service` unreachable | 502 "AI extraction service unreachable: ..." |
 
-❌ "PDF file is empty"
-   → No file content received
+## What works / what doesn't
 
-❌ "File is not a valid PDF"
-   → Invalid PDF format/signature
+**Works**: regular text-based PDFs, multi-page PDFs, PDFs with formatted text/tables.
 
-❌ "Invalid PDF file: ..."
-   → PDF is corrupted
+**Doesn't work**: encrypted/password-protected PDFs, scanned image PDFs with no text layer (no OCR), non-PDF files.
 
-❌ "No text could be extracted from PDF"
-   → PDF has no extractable text (e.g., scanned image)
-```
+## See also
 
-## Usage Examples
-
-### Testing with Postman
-1. Open Postman
-2. Import collection → `VeriHire_API_Collection.postman_collection.json`
-3. Find request: "Upload CV - PDF Test"
-4. Add your PDF file in Body section
-5. Send → Get results
-
-### Testing with curl
-```bash
-# Upload a PDF
-curl -X POST http://localhost:8000/api/upload-cv-pdf \
-  -F "file=@alice_cv.pdf" \
-  -F "job_id=job-001"
-
-# Get results
-curl http://localhost:8000/api/cv-upload/{upload_id}
-```
-
-## What Stays the Same?
-
-✅ Text upload still works: `POST /api/upload-cv`
-✅ Get results endpoint: `GET /api/cv-upload/{id}`
-✅ Employer dashboard endpoints unchanged
-✅ All other functionality preserved
-✅ No breaking changes
-
-## Backend Implementation
-
-### PDF Processor (`pdf_processor.py`)
-
-Handles PDF operations:
-- **`extract_text_from_pdf()`** - Extract text from PDF bytes
-- **`validate_pdf()`** - Check if file is valid PDF
-
-Features:
-- Multi-page support with page markers
-- Robust error handling
-- PDF signature validation
-
-### CV Processing (`api/cv_processing.py`)
-
-Two endpoints now:
-1. **`POST /api/upload-cv`** - Text input (existing)
-2. **`POST /api/upload-cv-pdf`** - File upload (new)
-
-Both run same pipeline:
-```
-Extract Text → Person B → Rules Engine → Results
-```
-
-### Models (`models.py`)
-
-Updated response model:
-- `cv_source: str` - "text" or "pdf"
-- `extracted_text: Optional[str]` - Raw text (PDF only)
-
-## Performance
-
-| PDF Size | Extract Time | Total Time |
-|----------|-------------|-----------|
-| 1 page | ~50-100ms | ~750ms |
-| 5 pages | ~200-300ms | ~900ms |
-| 10 pages | ~500-800ms | ~1200ms |
-
-Total = PDF extract + Person B call + Rules engine
-
-## What Works
-
-✅ Regular text-based PDFs
-✅ Multi-page PDFs
-✅ PDFs with tables
-✅ PDFs with formatted text
-✅ Large PDFs (100+ pages)
-
-## What Doesn't Work
-
-❌ Encrypted/password-protected PDFs
-❌ Scanned image PDFs (need OCR)
-❌ Non-PDF files
-❌ Corrupted PDFs
-
-## Next Steps
-
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Start the server:**
-   ```bash
-   python main.py
-   ```
-
-3. **Test PDF upload:**
-   - Use Postman collection
-   - Or use curl/Python examples above
-   - Or create React form
-
-4. **Integrate with frontend:**
-   - Add file input form: `<input type="file" accept=".pdf">`
-   - POST to `/api/upload-cv-pdf`
-   - Handle response with results
-
-## Documentation
-
-For detailed information, see:
-- **[PDF_UPLOAD_FEATURE.md](PDF_UPLOAD_FEATURE.md)** - Comprehensive feature guide (THIS)
-- **[README.md](README.md)** - Main documentation
-- **[QUICKSTART.md](QUICKSTART.md)** - Quick setup guide
-- **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Testing procedures
-
-## Summary
-
-The API now accepts **PDF files** via `/api/upload-cv-pdf` endpoint!
-
-- ✅ Extracts text automatically
-- ✅ Calls Person B for parsing
-- ✅ Runs job matching
-- ✅ Returns same format as text upload
-- ✅ Fully backward compatible
-- ✅ Production ready
-
-**Everything works together seamlessly!** 🚀
+- [PDF_UPLOAD_FEATURE.md](PDF_UPLOAD_FEATURE.md) — fuller detail
+- [README.md](README.md#1-candidate-registration-post-apicandidates) — candidate registration in context of the full flow
+- [TESTING_GUIDE.md](TESTING_GUIDE.md#scenario-3-pdf-submission) — test scenarios

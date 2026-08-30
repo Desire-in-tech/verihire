@@ -1,397 +1,227 @@
-# VeriHire API - Testing Guide
+# VeriHire API — Testing Guide
 
-Complete step-by-step guide for testing the API Layer before frontend integration.
+Complete step-by-step guide for testing the candidate registration → apply
+→ disclose flow, and the employer job/verification flow, before frontend
+integration.
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.10+ (both services use `dict[str, int]`/`X | None` type syntax)
 - Postman (or curl)
-- Person B service running on `http://localhost:8001` (or appropriate endpoint)
+- Both services running (see [QUICKSTART.md](QUICKSTART.md))
 
 ## Setup
 
-### Step 1: Install Dependencies
+```bash
+# terminal 1
+cd ai_service && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8001
+
+# terminal 2
+cd Backend && pip install -r requirements.txt && python main.py
+```
 
 ```bash
-cd /home/tjhazard/midnight-project/verihire/Backend
-pip install -r requirements.txt
-```
+curl http://localhost:8001/health
+# {"status": "ok", "ai_enabled": false, "model": "claude-opus-4-5"}
+# ai_enabled is false unless ANTHROPIC_API_KEY is set on ai_service — that's fine, offline fallback still works.
 
-### Step 2: Start API Server
-
-```bash
-python main.py
-```
-
-Output should show:
-```
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-```
-
-### Step 3: Verify Health
-
-```bash
 curl http://localhost:8000/health
-```
-
-Response:
-```json
-{"status": "healthy"}
+# {"status": "healthy", "jobs_loaded": 3}
 ```
 
 ---
 
-## API Testing Scenarios
+## Scenario 1: Jobs listing and verification badges
 
-### Scenario 1: Test Health & Jobs Listing
-
-#### 1.1 Health Check
+### 1.1 List all jobs
 ```bash
-curl -X GET http://localhost:8000/health
+curl http://localhost:8000/api/jobs
 ```
+**Expect**: 3 jobs. `job-001` and `job-002` show `verification.company_identity_verified: true`; `job-003` ("UnknownCompany123") shows every verification flag `false` — this is the deliberately-suspicious seed job.
 
-**Expected Response:**
-```json
-{"status": "healthy"}
-```
-
-#### 1.2 Get All Jobs
+### 1.2 Get one job
 ```bash
-curl -X GET http://localhost:8000/api/employer/jobs
+curl http://localhost:8000/api/jobs/job-001
 ```
+**Expect**: full `JobPosting` including `requirements` (`{"required_skills": {"python": 3, "postgresql": 0, "aws": 0, "backend": 0}, "required_certifications": ["aws_certified"], "min_education_level": "bachelors"}`).
 
-**Expected Response:**
-```json
-{
-  "jobs": [
-    {
-      "job_id": "job-001",
-      "title": "Senior Python Developer",
-      "company": "TechCorp Inc",
-      "description": "...",
-      "criteria": {
-        "required_skills": ["Python", "FastAPI", "PostgreSQL", "Docker"],
-        "min_years_experience": 5,
-        ...
-      },
-      "verification_status": "verified",
-      "is_active": true
-    },
-    ...
-  ],
-  "total_count": 3
-}
-```
-
-#### 1.3 Get Specific Job
+### 1.3 Check an external company before engaging
 ```bash
-curl -X GET http://localhost:8000/api/employer/jobs/job-001
+curl -X POST "http://localhost:8000/api/jobs/verify-external?company_name=Example%20Technologies&domain=example-technologies.com"
+curl -X POST "http://localhost:8000/api/jobs/verify-external?company_name=Sketchy%20Co&domain=totally-legit-i-swear.biz"
 ```
+**Expect**: the first returns all flags `true`; the second (not in the registry) returns all flags `false`.
 
-**Expected Response:** Single job object
+### 1.4 Post a new job
+```bash
+curl -X POST http://localhost:8000/api/jobs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Data Engineer",
+    "company_name": "Example Technologies",
+    "domain": "example-technologies.com",
+    "description": "Need 4+ years Python and PostgreSQL, AWS deployment experience. Bachelor'"'"'s required."
+  }'
+```
+**Expect**: 200, with `requirements` populated by `ai_service`'s `/parse-job` extraction and `verification` from the registry (this domain is known-good).
 
 ---
 
-### Scenario 2: Strong Candidate (Expected to Match Senior Role)
+## Scenario 2: Strong candidate — text submission
 
-#### 2.1 Upload CV - Close to Requirements
+### 2.1 Register from raw text
 ```bash
-curl -X POST http://localhost:8000/api/upload-cv \
-  -F "file=@/path/to/alice_cv.pdf" \
-  -F "job_id=job-001"
+curl -X POST http://localhost:8000/api/candidates \
+  -F "cv_text=Backend engineer with 4 years of professional Python experience. PostgreSQL and AWS deployment experience. AWS Certified Solutions Architect. Bachelor's degree in Computer Science." \
+  -F "name=Jordan Ellis" -F "email=jordan@example.com" -F "phone=555-1234"
 ```
+**Expect**: 200, `{"candidate_id": "...", "anonymized_ref": "PX-1xx", "cv_source": "text", "disclosure_level": "anonymous"}` — no name/email/phone/extraction in the response.
 
-**Expected Response:**
-- `upload_id`: Generated UUID
-- `extracted_data`: Extracted CV information
-- `matching_results`: Should show strong match with job-001
-  - `matches: true`
-  - `score: 90+` 
-  - `reasoning: "Excellent match..."`
+Save `candidate_id`.
 
-**Example matching_result for job-001:**
-```json
-{
-  "job_id": "job-001",
-  "matches": true,
-  "score": 95.5,
-  "missing_requirements": [],
-  "matched_requirements": [
-    "Has required skill: Python",
-    "Has required skill: FastAPI",
-    "Has required skill: PostgreSQL",
-    "Has required skill: Docker",
-    "Has 6 years experience (required: 5)",
-    "Has Bachelor's in Computer Science"
-  ],
-  "reasoning": "Excellent match (95.5% match rate). Candidate meets nearly all requirements."
-}
-```
-
-#### 2.2 Retrieve Upload Results
-Save the `upload_id` from the previous response, then:
-
+### 2.2 Apply to job-001
 ```bash
-curl -X GET "http://localhost:8000/api/cv-upload/{upload_id}"
+curl -X POST http://localhost:8000/api/candidates/{candidate_id}/apply/job-001
 ```
+**Expect**: `match.tier` is `"excellent"` or `"good"`, `match.overall_match` likely `true`, `proof.verified` matching that, and `contact: null`.
 
-Replace `{upload_id}` with actual ID from 2.1
-
-**Expected:** Full response including extracted data and all matching results
-
-#### 2.3 Get Matching Summary (Dashboard View)
+### 2.3 Employer view before disclosure
 ```bash
-curl -X GET "http://localhost:8000/api/employer/matching-summary/{upload_id}"
+curl http://localhost:8000/api/employers/jobs/job-001/candidates
 ```
+**Expect**: the application appears with `contact: null`.
 
-**Expected Response:**
-```json
-{
-  "upload_id": "{upload_id}",
-  "total_jobs": 3,
-  "matched_jobs": 1,
-  "matches": [
-    {
-      "job_id": "job-001",
-      "job_title": "Senior Python Developer",
-      "company": "TechCorp Inc",
-      "matches": true,
-      "score": 95.5,
-      "reasoning": "Excellent match...",
-      "missing_requirements": []
-    },
-    {
-      "job_id": "job-002",
-      "job_title": "Full Stack JavaScript Developer",
-      "company": "StartupXYZ",
-      "matches": false,
-      "score": 45.0,
-      "missing_requirements": [
-        "Missing required skill: JavaScript",
-        ...
-      ]
-    },
-    ...
-  ]
-}
+### 2.4 Disclose
+```bash
+curl -X POST "http://localhost:8000/api/candidates/{candidate_id}/disclose/job-001?level=full_disclosure"
+```
+**Expect**: response now includes `"contact": {"name": "Jordan Ellis", "email": "jordan@example.com", "phone": "555-1234"}`.
+
+### 2.5 Employer view after disclosure
+```bash
+curl http://localhost:8000/api/employers/jobs/job-001/candidates
+```
+**Expect**: that same candidate's entry now shows the contact block; any other applicant without disclosure still shows `null`.
+
+---
+
+## Scenario 3: PDF submission
+
+### 3.1 Register from a PDF
+```bash
+curl -X POST http://localhost:8000/api/candidates \
+  -F "file=@/path/to/cv.pdf" -F "name=Alex Rivera"
+```
+**Expect**: 200, `"cv_source": "pdf"`.
+
+### 3.2 Error cases
+```bash
+# Non-PDF file
+curl -X POST http://localhost:8000/api/candidates -F "file=@/path/to/notes.txt"
+# → 422 "File must be a PDF"
+
+# Both file and cv_text given
+curl -X POST http://localhost:8000/api/candidates -F "file=@/path/to/cv.pdf" -F "cv_text=hello"
+# → 422 "Provide either a PDF file or cv_text, not both"
+
+# Neither given
+curl -X POST http://localhost:8000/api/candidates
+# → 422 "Provide either a PDF file or cv_text"
 ```
 
 ---
 
-### Scenario 3: Junior Candidate (Expected NOT to Match Senior Roles)
+## Scenario 4: Junior / weak-match candidate
 
-#### 3.1 Upload Underqualified CV
+### 4.1 Register a thin CV
 ```bash
-curl -X POST http://localhost:8000/api/upload-cv \
-  -F "file=@/path/to/charlie_cv.pdf"
+curl -X POST http://localhost:8000/api/candidates \
+  -F "cv_text=1 year of backend experience, no certifications, no degree."
 ```
 
-**Expected Response:**
-- `upload_id`: Generated UUID
-- `extracted_data`: { skills: ["Python", "Java", "SQL"], years_experience: 2, ... }
-- `matching_results`: Should show NO match for job-001
-  - `matches: false`
-  - `score: <60` (low score)
-  - Missing critical requirements
-
-**Expected matching_result for job-001:**
-```json
-{
-  "job_id": "job-001",
-  "matches": false,
-  "score": 25.0,
-  "missing_requirements": [
-    "Missing required skill: FastAPI",
-    "Missing required skill: PostgreSQL",
-    "Missing required skill: Docker",
-    "Only has 2 years experience (required: 5)"
-  ],
-  "matched_requirements": [
-    "Has required skill: Python",
-    "Has Bachelor's in Computer Science"
-  ],
-  "reasoning": "Poor match (25.0% match rate). Candidate is missing critical requirements: Missing required skill: FastAPI, Missing required skill: PostgreSQL, Missing required skill: Docker."
-}
-```
-
-#### 3.2 Verify Summary Shows Poor Match
+### 4.2 Apply to job-002 (5+ years Python, Docker, Kubernetes required)
 ```bash
-curl -X GET "http://localhost:8000/api/employer/matching-summary/{upload_id}"
+curl -X POST http://localhost:8000/api/candidates/{candidate_id}/apply/job-002
 ```
-
-**Expected:** All jobs show low scores and `matches: false`
+**Expect**: `tier` of `"poor"` or `"average"`, `overall_match: false`, several `criteria` entries with `satisfied: false`.
 
 ---
 
-### Scenario 4: Different Role Candidate (Matches Different Job)
+## Error handling tests
 
-#### 4.1 Upload JavaScript Developer CV
+### Unknown candidate
 ```bash
-curl -X POST http://localhost:8000/api/upload-cv \
-  -F "file=@/path/to/bob_cv.pdf"
+curl -X POST http://localhost:8000/api/candidates/does-not-exist/apply/job-001
+# → 404 {"detail": "Candidate does-not-exist not found"}
 ```
 
-**Expected Response:**
-- Should match job-002 with 80%+ score
-- Should NOT match job-001 (wrong tech stack)
-
-#### 4.2 Verify Summary
+### Unknown job
 ```bash
-curl -X GET "http://localhost:8000/api/employer/matching-summary/{upload_id}"
+curl http://localhost:8000/api/jobs/does-not-exist
+# → 404 {"detail": "Job does-not-exist not found"}
 ```
 
-**Expected:** job-002 should be first with highest score
-
----
-
-### Scenario 5: Data Science Candidate (Niche Match)
-
-#### 5.1 Upload Data Science CV
+### Disclose before ever applying
 ```bash
-curl -X POST http://localhost:8000/api/upload-cv \
-  -F "file=@/path/to/diana_cv.pdf"
+curl -X POST "http://localhost:8000/api/candidates/{candidate_id}/disclose/job-002?level=full_disclosure"
+# (assuming this candidate never applied to job-002)
+# → 404 {"detail": "No application found for candidate ... on job job-002"}
 ```
 
-**Expected Response:**
-- Should match job-003 with 90%+ score
-- Should have low scores for job-001 and job-002
-
----
-
-## Error Handling Tests
-
-### Test 1: Person B Service Unavailable
-
-If Person B is not running, uploading a CV should return:
-
+### ai_service unreachable
+Stop the `ai_service` process, then:
 ```bash
-curl -X POST http://localhost:8000/api/upload-cv \
-  -F "file=@/path/to/any_cv.pdf"
-```
-
-**Expected Error Response (HTTP 500):**
-```json
-{"detail": "Error processing CV: Failed to call Person B service: ..."}
-```
-
-### Test 2: Invalid Upload ID
-
-```bash
-curl -X GET http://localhost:8000/api/cv-upload/invalid-id
-```
-
-**Expected Response (HTTP 404):**
-```json
-{"detail": "Upload invalid-id not found"}
-```
-
-### Test 3: Invalid Job ID
-
-```bash
-curl -X GET http://localhost:8000/api/employer/jobs/invalid-job-id
-```
-
-**Expected Response (HTTP 404):**
-```json
-{"detail": "Job invalid-job-id not found"}
+curl -X POST http://localhost:8000/api/candidates -F "cv_text=test"
+# → 502 {"detail": "AI extraction service unreachable: ..."}
 ```
 
 ---
 
-## Integration Testing with Postman
+## Integration testing with Postman
 
-1. **Import Collection:**
-   - Open Postman
-   - Click "Import"
-   - Select `VeriHire_API_Collection.postman_collection.json`
-
-2. **Set Variables:** (optional for dynamic testing)
-   - Create environment with variables
-   - `{{upload_id}}` - Will be filled from responses
-
-3. **Run Test Scenarios:**
-   - Execute requests in order
-   - Verify responses match expected formats
-
-4. **Create Tests:** (in Postman)
-   ```javascript
-   pm.test("Response is valid", function() {
-       pm.response.to.have.status(200);
-   });
-   
-   pm.test("Extracted data structure", function() {
-       var jsonData = pm.response.json();
-       pm.expect(jsonData).to.have.property('extracted_data');
-       pm.expect(jsonData.extracted_data).to.have.property('skills');
-   });
-   ```
-
----
-
-## Performance Testing
-
-### Load Testing with Multiple CVs
-
-```bash
-for i in {1..10}; do
-  curl -X POST http://localhost:8000/api/upload-cv \
-    -F "file=@/path/to/test_cv_$i.pdf"
-done
-```
-
-**Monitor:** Response times should be <1 second per request
+1. Open Postman → Import → `VeriHire_API_Collection.postman_collection.json`.
+2. Run scenarios in order: jobs listing → candidate registration → apply → employer view → disclose → employer view again.
+3. Save `candidate_id` as a collection variable after registration so later requests can reference it.
 
 ---
 
 ## Debugging
 
-### Enable Debug Logging
-
+### Enable debug logging
 Add to `main.py`:
 ```python
 import logging
 logging.basicConfig(level=logging.DEBUG)
 ```
 
-### Check Server Logs
-
-Look for:
-- Person B service connection attempts
-- Pydantic validation errors
-- Rules engine scoring details
-
-### Inspect Database State
-
-In Python REPL:
+### Inspect in-memory state
 ```python
 from database import db
 print(db.get_all_jobs())
-print(db.cv_uploads)
+print(db.candidates)
+print(db.applications)
 ```
 
----
-
-## Checklist Before Frontend Integration
-
-- [ ] Health check returns 200
-- [ ] Job listing shows 3 jobs
-- [ ] CV upload returns upload_id
-- [ ] Extracted data matches Person B schema
-- [ ] Rules engine correctly identifies strong matches
-- [ ] Rules engine correctly rejects poor matches
-- [ ] Matching summary properly sorted by score
-- [ ] Dashboard endpoints return correct data
-- [ ] Error handling works for missing uploads/jobs
-- [ ] Person B connection errors handled gracefully
-- [ ] Pydantic validation catches invalid schemas
+### Check whether ai_service is using real Claude or the offline fallback
+```bash
+curl http://localhost:8001/health
+```
+`"ai_enabled": false` means every `/extract`/`/parse-job` call is going
+through the offline keyword extractor — expected without
+`ANTHROPIC_API_KEY` set, and a common reason extraction looks rougher than
+expected.
 
 ---
 
-## Next Steps
+## Checklist before frontend integration
 
-Once all tests pass:
-1. Deploy Person A API to production
-2. Connect frontend to `/api/upload-cv` endpoint
-3. Wire employer dashboard to summary endpoints
-4. Integrate Midnight layer for proof generation
-
+- [ ] Both health checks return 200
+- [ ] Job listing shows 3 jobs, with job-003 flagged unverified
+- [ ] Candidate registration works via both PDF and raw text
+- [ ] Registration response never leaks name/email/phone/extraction
+- [ ] Apply returns a sensible tier for a strong vs. weak CV
+- [ ] Contact info is `null` until disclosure, and appears only for the disclosed job
+- [ ] Employer view respects the same disclosure gating
+- [ ] 404s work for unknown candidate/job/application
+- [ ] 422s work for malformed candidate registration
+- [ ] ai_service-unreachable case returns a clear 502, not a stack trace

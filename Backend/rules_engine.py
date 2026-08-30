@@ -1,119 +1,82 @@
-from models import JobCriteria, ExtractedCVData, RulesEngineResult
+"""
+This is the "explicit rules" box: AI extracts credentials -> RULES ENGINE
+(this file) -> Midnight verifies.
 
-class RulesEngine:
+The AI never decides whether a candidate is qualified. This file does, and
+it does it with plain deterministic comparisons - every decision it makes
+can be printed out as a human-readable reason (see CriterionResult), which
+is exactly what gets turned into circuit inputs for Midnight to verify.
+There is no AI call anywhere in this file on purpose.
+"""
+
+from models import CriterionResult, ExtractionResult, JobRequirements, MatchResult, MatchTier
+
+
+def _tier_for_score(score: float, all_satisfied: bool) -> MatchTier:
     """
-    Rules engine that evaluates if a CV matches job criteria.
-    Compares extracted CV data against job requirements and returns pass/fail decision.
+    Maps a 0.0-1.0 fraction of satisfied criteria to the graded label an
+    employer actually sees ("excellent" / "good" / "average" / "poor")
+    instead of a bare pass/fail.
     """
-    
-    @staticmethod
-    def evaluate(job_id: str, job_criteria: JobCriteria, cv_data: ExtractedCVData) -> RulesEngineResult:
-        """
-        Evaluate if CV data matches job criteria.
-        
-        Args:
-            job_id: The job being evaluated against
-            job_criteria: The job's requirements
-            cv_data: The extracted CV data
-            
-        Returns:
-            RulesEngineResult with match status and detailed feedback
-        """
-        missing_requirements = []
-        matched_requirements = []
-        
-        # Check required skills
-        cv_skills_lower = [skill.lower() for skill in cv_data.skills]
-        for required_skill in job_criteria.required_skills:
-            if required_skill.lower() in cv_skills_lower:
-                matched_requirements.append(f"Has required skill: {required_skill}")
-            else:
-                missing_requirements.append(f"Missing required skill: {required_skill}")
-        
-        # Check years of experience
-        years_match = cv_data.years_experience >= job_criteria.min_years_experience
-        if years_match:
-            matched_requirements.append(
-                f"Has {cv_data.years_experience} years experience (required: {job_criteria.min_years_experience})"
+    if all_satisfied:
+        return MatchTier.EXCELLENT
+    if score >= 0.75:
+        return MatchTier.GOOD
+    if score >= 0.5:
+        return MatchTier.AVERAGE
+    return MatchTier.POOR
+
+
+def evaluate(candidate_ref: str, job_id: str, extraction: ExtractionResult, requirements: JobRequirements) -> MatchResult:
+    criteria: list[CriterionResult] = []
+
+    for skill, min_years in requirements.required_skills.items():
+        candidate_years = extraction.skills.get(skill, None)
+        satisfied = candidate_years is not None and candidate_years >= min_years
+        required_desc = f">= {min_years} years" if min_years > 0 else "present"
+        criteria.append(CriterionResult(criterion=skill, required=required_desc, satisfied=satisfied))
+
+    for cert in requirements.required_certifications:
+        satisfied = cert in extraction.certifications
+        criteria.append(CriterionResult(criterion=cert, required="present", satisfied=satisfied))
+
+    if requirements.min_education_level is not None:
+        satisfied = _education_meets_minimum(extraction.education_level, requirements.min_education_level)
+        criteria.append(
+            CriterionResult(
+                criterion="education",
+                required=f"{requirements.min_education_level.value} or higher (or equivalent experience)",
+                satisfied=satisfied,
             )
-        else:
-            missing_requirements.append(
-                f"Only has {cv_data.years_experience} years experience (required: {job_criteria.min_years_experience})"
-            )
-        
-        # Check education level (soft requirement)
-        education_match = True
-        if job_criteria.education_level:
-            # Check if education requirement is mentioned or acceptable
-            if cv_data.education_level:
-                if "Master's" in job_criteria.education_level and "Master's" in cv_data.education_level:
-                    matched_requirements.append(f"Has {cv_data.education_level}")
-                elif "Bachelor's" in job_criteria.education_level and ("Bachelor's" in cv_data.education_level or "Master's" in cv_data.education_level):
-                    matched_requirements.append(f"Has {cv_data.education_level}")
-                elif "Self-taught" in job_criteria.education_level:
-                    matched_requirements.append("Education requirement flexible")
-                else:
-                    education_match = False
-                    missing_requirements.append(f"Education mismatch: has {cv_data.education_level}")
-            else:
-                education_match = False
-        
-        # Check languages
-        cv_languages_lower = [lang.lower() for lang in cv_data.languages]
-        languages_match = True
-        for required_language in job_criteria.languages:
-            if required_language.lower() in cv_languages_lower:
-                matched_requirements.append(f"Speaks required language: {required_language}")
-            else:
-                languages_match = False
-                missing_requirements.append(f"Missing language: {required_language}")
-        
-        # Check certifications
-        cv_certs_lower = [cert.lower() for cert in cv_data.certifications]
-        for required_cert in job_criteria.certifications:
-            if required_cert.lower() in cv_certs_lower:
-                matched_requirements.append(f"Has required certification: {required_cert}")
-            else:
-                missing_requirements.append(f"Missing certification: {required_cert}")
-        
-        # Calculate score (0-100)
-        total_criteria = (
-            len(job_criteria.required_skills) +
-            1 +  # years of experience
-            (1 if job_criteria.education_level else 0) +
-            len(job_criteria.languages) +
-            len(job_criteria.certifications)
         )
-        
-        if total_criteria == 0:
-            score = 100.0
-        else:
-            met_criteria = len(matched_requirements)
-            score = (met_criteria / total_criteria) * 100
-        
-        # Determine if CV matches (must meet all required skills and years of experience)
-        matched_skill_count = len([m for m in matched_requirements if "Has required skill:" in m])
-        matches = (matched_skill_count == len(job_criteria.required_skills)) and years_match
-        
-        reasoning = RulesEngine._generate_reasoning(matched_requirements, missing_requirements, score)
-        
-        return RulesEngineResult(
-            job_id=job_id,
-            matches=matches,
-            score=round(score, 2),
-            missing_requirements=missing_requirements,
-            matched_requirements=matched_requirements,
-            reasoning=reasoning
-        )
-    
-    @staticmethod
-    def _generate_reasoning(matched: list, missing: list, score: float) -> str:
-        """Generate human-readable reasoning for the match decision."""
-        if score >= 90:
-            return f"Excellent match ({score}% match rate). Candidate meets nearly all requirements."
-        elif score >= 75:
-            return f"Good match ({score}% match rate). Candidate meets most key requirements."
-        elif score >= 60:
-            return f"Partial match ({score}% match rate). Candidate meets some requirements but is missing: {', '.join(missing[:2])}."
-        else:
-            return f"Poor match ({score}% match rate). Candidate is missing critical requirements: {', '.join(missing[:3])}."
+
+    overall_match = all(c.satisfied for c in criteria) if criteria else False
+    score = (sum(1 for c in criteria if c.satisfied) / len(criteria)) if criteria else 0.0
+    tier = _tier_for_score(score, overall_match)
+
+    return MatchResult(
+        candidate_ref=candidate_ref,
+        job_id=job_id,
+        criteria=criteria,
+        score=round(score, 2),
+        tier=tier,
+        overall_match=overall_match,
+    )
+
+
+# Ordering used to compare education levels. "equivalent_experience" is
+# treated as satisfying any requirement, matching "Bachelor's degree OR
+# equivalent experience" style requirements.
+_EDUCATION_RANK = {
+    "none": 0,
+    "highschool": 1,
+    "bachelors": 2,
+    "masters": 3,
+    "phd": 4,
+}
+
+
+def _education_meets_minimum(candidate_level, required_level) -> bool:
+    if candidate_level.value == "equivalent_experience":
+        return True
+    return _EDUCATION_RANK.get(candidate_level.value, 0) >= _EDUCATION_RANK.get(required_level.value, 0)
