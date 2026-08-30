@@ -40,8 +40,8 @@ class Database:
         return [job for job in self.jobs.values() if job.is_active]
     
     def save_cv_upload(self, upload_data: dict) -> str:
-        """Save CV upload result and return upload ID."""
-        upload_id = str(uuid.uuid4())
+        """Save CV upload result under its upload_id and return that ID."""
+        upload_id = upload_data["upload_id"]
         self.cv_uploads[upload_id] = upload_data
         return upload_id
     

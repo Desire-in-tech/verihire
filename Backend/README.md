@@ -92,16 +92,6 @@ Upload CV as PDF file and:
 - job_id: (optional) string
 ```
 
-### 2. Legacy Alias Endpoint (`POST /api/upload-cv-pdf`) 🆕
-
-This endpoint is retained for backwards compatibility and follows the same multipart PDF contract as `/api/upload-cv`.
-
-**Request (multipart/form-data):**
-```
-- file: PDF file upload
-- job_id: (optional) string
-```
-
 **Response includes:**
 - `cv_source: "pdf"` - Indicates PDF source
 - `extracted_text` - `null` (text extraction is delegated to Person B)
@@ -221,7 +211,7 @@ The system comes with 3 sample jobs and 4 sample CVs:
 The API calls Person B's LMM `/extract` endpoint with multipart PDF payload:
 
 ```python
-async def extract_cv_from_pdf(pdf_content: bytes, filename: str = "cv.pdf") -> ExtractedCVData:
+async def extract_cv_from_text(pdf_content: bytes, filename: str = "cv.pdf") -> ExtractedCVData:
     response = await client.post(
         f"{LMM_AGENT_URL}/extract",
         files={"cv_pdf": (filename, pdf_content, "application/pdf")}

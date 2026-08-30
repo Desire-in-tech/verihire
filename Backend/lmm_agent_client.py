@@ -153,61 +153,54 @@ class LMMAgentClient:
         self.settings = get_settings()
         self.config = LMMAgentConfig()
         self.base_url = getattr(self.settings, self.config.BASE_URL_ENV_VAR, "http://localhost:8888")
-    
-    async def extract_cv_from_pdf(
+        self.extract_path = "/extract"
+        self.timeout = 60.0
+
+    async def extract_cv_from_text(
         self,
-        pdf_content: bytes,
-        filename: str = "cv.pdf",
+        cv_text: str,
         job_id: Optional[str] = None,
     ) -> ExtractedCVData:
         """
-        Send PDF to LMM Agent for extraction.
-        
+        Send CV text to Person B's service for extraction.
+
         Args:
-            pdf_content: Raw PDF file bytes
-            filename: Original filename (for logging/debugging)
-            
+            cv_text: Plain text extracted from the candidate's CV PDF
+            job_id: Optional job ID for context
+
         Returns:
-            ExtractedCVData with parsed CV information
-            
+            ExtractedCVData with parsed candidate information
+
         Raises:
-            ValueError: If request fails or response is invalid
-            Exception: For network/server errors
+            ValueError: If the request fails or the response doesn't match
+                        the expected schema
         """
-        
-        if not pdf_content:
-            raise ValueError("PDF content is empty")
-        
-        endpoint_url = f"{self.base_url}{self.config.EXTRACT_ENDPOINT_PATH}"
-        
+        if not cv_text or not cv_text.strip():
+            raise ValueError("CV text is empty")
+
+        endpoint_url = f"{self.base_url}{self.extract_path}"
+        payload = {"cv_text": cv_text}
+        if job_id:
+            payload["job_id"] = job_id
+
         try:
             async with httpx.AsyncClient() as client:
-                # Prepare request based on configured format
-                if self.config.REQUEST_FORMAT == "multipart_file":
-                    response = await self._send_multipart_request(
-                        client, endpoint_url, pdf_content, filename, job_id
-                    )
-                elif self.config.REQUEST_FORMAT == "base64_json":
-                    response = await self._send_base64_request(
-                        client, endpoint_url, pdf_content, job_id
-                    )
-                elif self.config.REQUEST_FORMAT == "binary":
-                    response = await self._send_binary_request(
-                        client, endpoint_url, pdf_content, job_id
-                    )
-                else:
-                    raise ValueError(f"Unknown request format: {self.config.REQUEST_FORMAT}")
-                
-                # Parse response based on configured format
-                extracted_data = self._parse_response(response.json())
-                return extracted_data
-                
+                response = await client.post(
+                    endpoint_url,
+                    json=payload,
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                return ExtractedCVData(**response.json())
+
         except httpx.HTTPStatusError as e:
-            raise ValueError(f"LMM Agent returned error: {e.response.status_code} - {e.response.text}")
+            raise ValueError(
+                f"LMM Agent returned error: {e.response.status_code} - {e.response.text}"
+            )
         except httpx.RequestError as e:
-            raise ValueError(f"Failed to connect to LMM Agent at {endpoint_url}: {str(e)}")
+            raise ValueError(f"Failed to connect to LMM Agent at {endpoint_url}: {e}")
         except Exception as e:
-            raise ValueError(f"Error extracting CV from PDF: {str(e)}")
+            raise ValueError(f"Error parsing LMM Agent response: {e}")
     
     async def _send_multipart_request(
         self,

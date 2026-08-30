@@ -10,10 +10,49 @@ from lmm_agent_client import LMMAgentClient
 from rules_engine import RulesEngine
 from database import db
 import uuid
+import pdfplumber
+import io
 
 router = APIRouter(prefix="/api", tags=["cv-processing"])
 lmm_agent_client = LMMAgentClient()
 
+
+class PDFExtractionError(Exception):
+    """Raised when a PDF can't be parsed or contains no extractable text."""
+    pass
+
+
+def extract_text_from_pdf(pdf_content: bytes) -> str:
+    """
+    Extract plain text from raw PDF bytes.
+
+    Args:
+        pdf_content: Raw PDF file bytes (e.g. from an UploadFile.read())
+
+    Returns:
+        Extracted text, with pages joined by double newlines.
+
+    Raises:
+        PDFExtractionError: if the PDF can't be opened or has no text content
+    """
+    try:
+        text_parts = []
+        with pdfplumber.open(io.BytesIO(pdf_content)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+    except Exception as e:
+        raise PDFExtractionError(f"Could not parse PDF: {e}")
+
+    full_text = "\n\n".join(text_parts).strip()
+
+    if not full_text:
+        raise PDFExtractionError(
+            "No extractable text found in PDF (it may be a scanned image with no text layer)"
+        )
+
+    return full_text
 
 def _build_results(extracted_data: ExtractedCVData):
     """Run rules engine for all active jobs and return matching/proof results."""
@@ -69,15 +108,23 @@ async def upload_cv(file: UploadFile = File(...), job_id: Optional[str] = Form(N
         if not pdf_content.startswith(b"%PDF"):
             raise ValueError("File is not a valid PDF")
 
+             # Extract text on our side now, instead of sending raw bytes to Person B
+        try:
+            cv_text = extract_text_from_pdf(pdf_content)
+        except PDFExtractionError as e:
+            raise ValueError(str(e))
+
+
         # Step 1: Forward raw PDF bytes to LMM Agent (Person B module)
-        extracted_data = await lmm_agent_client.extract_cv_from_pdf(
-            pdf_content=pdf_content,
-            filename=file.filename,
+        extracted_data = await lmm_agent_client.extract_cv_from_text(
+            cv_text=cv_text,
             job_id=job_id,
         )
         
         # Step 2: Run rules engine against each job
         matching_results, proof_results = _build_results(extracted_data)
+
+        
         
         # Step 4: Save and return results
         upload_id = str(uuid.uuid4())
@@ -105,27 +152,6 @@ async def upload_cv(file: UploadFile = File(...), job_id: Optional[str] = Form(N
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing CV: {str(e)}")
-
-
-@router.post("/upload-cv-pdf", response_model=CVUploadResponse, summary="Upload and process a CV from PDF")
-async def upload_cv_pdf(file: UploadFile = File(...), job_id: Optional[str] = Form(None)):
-    """
-    Upload a raw PDF CV for processing:
-    1. Validate uploaded PDF payload
-    2. Forward raw PDF bytes to LMM Agent (Person B module)
-    3. Validate LMM response with Pydantic
-    4. Run rules engine against all active jobs
-    5. Return processed results
-    
-    Args:
-        file: PDF file upload
-        job_id: Optional job ID to filter results
-        
-    Returns:
-        CVUploadResponse with extracted data and matching results
-    """
-    # Compatibility alias: keep legacy route while using the same PDF flow as /upload-cv.
-    return await upload_cv(file=file, job_id=job_id)
 
 
 @router.get("/cv-upload/{upload_id}", response_model=CVUploadResponse, summary="Get CV upload result")
