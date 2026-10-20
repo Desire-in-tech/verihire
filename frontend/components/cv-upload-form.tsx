@@ -4,6 +4,7 @@ import { ChangeEvent, FormEvent, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CVUploadResult } from "@/lib/verihire-data";
+import { verificationIsPositive, verificationLabel } from "@/lib/verification-label";
 
 const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -109,8 +110,8 @@ export function CvUploadForm() {
             <Badge tone={firstMatch.matches ? "green" : "slate"}>
               {firstMatch.matches ? "Match found" : "Not a match yet"}
             </Badge>
-            <Badge tone={firstProof.applicant_verified ? "green" : "slate"}>
-              {firstProof.applicant_verified ? "Midnight verified" : "Verification pending"}
+            <Badge tone={verificationIsPositive(firstProof) ? "green" : "slate"}>
+              {verificationLabel(firstProof)}
             </Badge>
           </div>
           <p className="mt-3 text-sm text-[#dfe9f8]">

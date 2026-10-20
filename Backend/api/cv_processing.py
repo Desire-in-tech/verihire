@@ -10,12 +10,22 @@ from Backend.lmm_agent_client import LMMAgentClient
 from Backend.pdf_extractor import extract_text_from_pdf
 from Backend.rules_engine import RulesEngine
 from Backend.database import db
-from Backend.midnight_client import MidnightClient
+from Backend.midnight_client import MidnightClient, applicant_verified_from_proof, empty_proof
 import uuid
 
 router = APIRouter(prefix="/api", tags=["cv-processing"])
 lmm_agent_client = LMMAgentClient()
 midnight_client = MidnightClient()
+
+
+def apply_proof_to_result(proof_result: ProofResult, proof_data: Optional[dict]) -> bool:
+    """Store one Midnight outcome and set applicant_verified from it.
+
+    True only when verification_status is verified and eligible is True.
+    """
+    proof_result.proof_data = proof_data
+    proof_result.applicant_verified = applicant_verified_from_proof(proof_data)
+    return proof_result.applicant_verified
 
 
 def _build_results(
@@ -56,10 +66,11 @@ def _build_results(
                 applicant_verified=False,
                 cv_data=extracted_data,
                 matching_result=result,
-                proof_data={
-                    "status": "pending",
-                    "mode": "not_requested",
-                },
+                proof_data=empty_proof(
+                    verification_status=None,
+                    eligible=None,
+                    message="Midnight verification has not been requested.",
+                ),
             )
         )
 
@@ -257,13 +268,12 @@ async def _process_cv(
                 result=proof_result,
             )
         except RuntimeError as exc:
-            proof_data = {
-                "status": "unavailable",
-                "mode": "local_fallback",
-                "message": str(exc),
-            }
-        proof_result.proof_data = proof_data
-        proof_result.applicant_verified = proof_data.get("status") == "verified"
+            proof_data = empty_proof(
+                verification_status="unavailable",
+                eligible=None,
+                message=str(exc),
+            )
+        apply_proof_to_result(proof_result, proof_data)
 
     # ---------------------------------------------------------------
     # 6. Persist result

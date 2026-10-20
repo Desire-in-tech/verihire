@@ -17,16 +17,16 @@
  * but has not been run against a live network from this environment - you
  * will need a compiled contract, a running proof server, node+indexer RPC
  * access, and a funded wallet before this actually produces a real proof.
- * Until then, keep MIDNIGHT_SERVICE_URL unset on the Python side and the
- * app keeps working off the offline mock.
+ * Until then, keep MIDNIGHT_SERVICE_URL unset on the Python side. The
+ * backend reports not_configured and does not invent a proof.
  */
 
 import 'dotenv/config';
 import express from 'express';
-import crypto from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
+import { readEligibility } from './eligibility.js';
 import { buildProviders, readWalletSeed } from './providers.js';
 
 const app = express();
@@ -118,14 +118,21 @@ app.post('/prove', async (req, res) => {
       typeof body.require_aws_cert !== 'boolean' ||
       typeof body.require_bachelors !== 'boolean'
     ) {
-      return res.status(400).json({ detail: 'Invalid proof request' });
+      return res.status(400).json({
+        verification_status: 'failed',
+        eligible: null,
+        unsupported_criteria: [],
+        proof_id: null,
+        block_height: null,
+        message: 'Invalid proof request',
+      });
     }
 
     const contract = await getDeployedContract();
 
     // resultKey needs to be Bytes<32> on the Compact side - the Python
     // side already sends a 32-byte hex sha256 digest, so this just decodes it.
-    const resultKeyBytes = Buffer.from(body.result_key, 'hex');
+    const resultKeyBytes = Uint8Array.from(Buffer.from(body.result_key, 'hex'));
 
     const txData = await contract.callTx.proveEligibility(
       resultKeyBytes,
@@ -148,20 +155,26 @@ app.post('/prove', async (req, res) => {
     ).href;
     const { ledger: toLedger } = await import(compiledContractModule);
     const publicLedger = toLedger(ledgerState);
-    const verified = Boolean(publicLedger.eligibilityResults.get(resultKeyBytes));
-    const claimHash = crypto.createHash('sha256').update(body.result_key).digest('hex');
+    const outcome = readEligibility(publicLedger.eligibilityResults, resultKeyBytes);
 
     res.json({
-      status: 'verified',
-      proof_id: txData.public.txId,
-      verified,
-      claim: `on-chain proof for result_key ${body.result_key}`,
-      claim_hash: claimHash,
-      generated_at: new Date().toISOString(),
+      verification_status: outcome.verification_status,
+      eligible: outcome.eligible,
+      unsupported_criteria: [],
+      proof_id: txData.public.txId ?? null,
+      block_height: txData.public.blockHeight ?? null,
+      message: outcome.message,
     });
   } catch (err) {
     console.error('proveEligibility call failed:', err);
-    res.status(502).json({ detail: String(err) });
+    res.status(502).json({
+      verification_status: 'failed',
+      eligible: null,
+      unsupported_criteria: [],
+      proof_id: null,
+      block_height: null,
+      message: String(err),
+    });
   }
 });
 

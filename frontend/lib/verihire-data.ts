@@ -182,8 +182,11 @@ export type CVUploadResult = {
     applicant_verified: boolean;
     proof_data?: {
       message?: string;
-      status?: string;
-      proof_id?: string;
+      verification_status?: "verified" | "failed" | "unavailable" | "not_configured" | null;
+      eligible?: boolean | null;
+      unsupported_criteria?: string[];
+      proof_id?: string | null;
+      block_height?: number | null;
     };
   }>;
 };
