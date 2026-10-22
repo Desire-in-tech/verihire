@@ -9,7 +9,7 @@ import {
   readLocalNetworkConfig,
   requireExplicitLocalProofConfig,
 } from "../src/local-network.ts";
-import { createProveApp, type ProveRouteDependencies } from "../src/prove-route.ts";
+import { createProveApp, type ProveOutcome, type ProveRouteDependencies } from "../src/prove-route.ts";
 import { assertWalletReady } from "../src/wallet-ready.ts";
 
 const EXPLICIT_LOCAL = {
@@ -59,6 +59,7 @@ function routeHarness(options: {
   env: Record<string, string | undefined>;
   awaitWalletReady?: () => Promise<void>;
   submit?: () => Promise<{ public: { txId?: string | null; blockHeight?: number | null } }>;
+  readOutcome?: () => Promise<ProveOutcome>;
 }) {
   const order: string[] = [];
   const networks: Array<{ nodeUrl: string; networkId: string }> = [];
@@ -90,6 +91,7 @@ function routeHarness(options: {
     },
     readOutcome: async () => {
       order.push("read");
+      if (options.readOutcome) return options.readOutcome();
       return { verification_status: "verified", eligible: true, message: "ok" };
     },
   };
@@ -221,9 +223,32 @@ test("an explicit local configuration submits once and does not retry a failure"
   });
   const error = await postProve(failed.app, proofBody());
   assert.equal(error.status, 502);
+  assert.equal(error.body.verification_status, "failed");
   assert.equal(error.body.proof_id, null);
+  assert.equal(error.body.block_height, null);
   assert.deepEqual(failed.order, ["connect", "ready", "join", "submit"]);
   assert.equal(failed.order.filter((step) => step === "submit").length, 1);
+});
+
+test("an outcome read failure after submission keeps the transaction id and does not retry", async () => {
+  const { app, order } = routeHarness({
+    env: EXPLICIT_LOCAL,
+    submit: async () => ({ public: { txId: "tx-submitted", blockHeight: 9 } }),
+    readOutcome: async () => {
+      throw new Error("ledger read failed");
+    },
+  });
+  const response = await postProve(app, proofBody());
+  assert.equal(response.status, 502);
+  assert.equal(response.body.verification_status, "unknown");
+  assert.equal(response.body.eligible, null);
+  assert.equal(response.body.proof_id, "tx-submitted");
+  assert.equal(response.body.block_height, 9);
+  assert.match(String(response.body.message), /submitted/i);
+  assert.match(String(response.body.message), /pending and unknown/i);
+  assert.match(String(response.body.message), /Do not resubmit it automatically/);
+  assert.deepEqual(order, ["connect", "ready", "join", "submit", "read"]);
+  assert.equal(order.filter((step) => step === "submit").length, 1);
 });
 
 test("POST /prove does not fall back to another explicit local network", async () => {

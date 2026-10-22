@@ -124,16 +124,28 @@ export function registerProveRoute(app: Express, deps: ProveRouteDependencies): 
         body.require_aws_cert,
         body.require_bachelors,
       );
-      const outcome = await deps.readOutcome(providers, resultKeyBytes);
-
-      res.json({
-        verification_status: outcome.verification_status,
-        eligible: outcome.eligible,
-        unsupported_criteria: [],
-        proof_id: txData.public.txId ?? null,
-        block_height: txData.public.blockHeight ?? null,
-        message: outcome.message,
-      });
+      try {
+        const outcome = await deps.readOutcome(providers, resultKeyBytes);
+        res.json({
+          verification_status: outcome.verification_status,
+          eligible: outcome.eligible,
+          unsupported_criteria: [],
+          proof_id: txData.public.txId ?? null,
+          block_height: txData.public.blockHeight ?? null,
+          message: outcome.message,
+        });
+      } catch (err) {
+        console.error("eligibility outcome read failed after submission:", err);
+        res.status(502).json({
+          verification_status: "unknown",
+          eligible: null,
+          unsupported_criteria: [],
+          proof_id: txData.public?.txId ?? null,
+          block_height: txData.public?.blockHeight ?? null,
+          message:
+            "The eligibility transaction was submitted. Its outcome is pending and unknown. Do not resubmit it automatically.",
+        });
+      }
     } catch (err) {
       console.error("proveEligibility call failed:", err);
       res.status(502).json({
