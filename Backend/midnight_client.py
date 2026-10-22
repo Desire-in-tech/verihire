@@ -8,6 +8,7 @@ Node service where the official Midnight SDK belongs.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -18,6 +19,18 @@ _CONNECTIVITY_TIMEOUT_SECONDS = 3.0
 _UINT16_MAX = 65535
 _BACHELORS_OR_HIGHER = {"bachelors", "masters", "phd"}
 _SUPPORTED_EDUCATION = {"", "none", "bachelors"}
+_BLOCKED_HOSTS = {
+    "proof-server.preprod.midnight.network",
+    "lace-proof-pub.preprod.midnight.network",
+    "lace-proof-pub.preview.midnight.network",
+    "lace-proof-pub.mainnet.midnight.network",
+}
+
+
+def host_is_blocked(url: str) -> bool:
+    """True for undocumented public provers that must not receive applicant data."""
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    return host in _BLOCKED_HOSTS
 
 
 def empty_proof(
@@ -73,6 +86,12 @@ class MidnightClient:
                 "midnight_configured": False,
                 "midnight_reachable": False,
                 "midnight_status": "not_configured",
+            }
+        if host_is_blocked(self.base_url):
+            return {
+                "midnight_configured": True,
+                "midnight_reachable": False,
+                "midnight_status": "blocked_host",
             }
         try:
             async with httpx.AsyncClient(timeout=_CONNECTIVITY_TIMEOUT_SECONDS) as client:
@@ -243,6 +262,13 @@ class MidnightClient:
                 verification_status="not_configured",
                 eligible=None,
                 message="Midnight service is not configured; no proof was generated.",
+            )
+
+        if host_is_blocked(self.base_url):
+            return empty_proof(
+                verification_status="unavailable",
+                eligible=None,
+                message="Midnight verification is unavailable.",
             )
 
         unsupported = self.unsupported_criteria(job)

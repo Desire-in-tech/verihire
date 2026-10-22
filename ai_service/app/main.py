@@ -18,7 +18,9 @@ Run it directly with:  uvicorn app.main:app --reload --port 8001
 (run from inside the ai_service/ directory, with its virtualenv active)
 """
 
-from fastapi import FastAPI
+import hmac
+
+from fastapi import Depends, FastAPI, Header, HTTPException
 
 from .config import settings
 from .models import (
@@ -35,19 +37,42 @@ app = FastAPI(
 )
 
 
+def require_service_token(authorization: str | None = Header(default=None)) -> None:
+    """Shared secret for the backend. The token is never returned."""
+    expected = settings.service_token
+    if not expected:
+        raise HTTPException(status_code=503, detail="AI service authentication is not configured")
+    supplied = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        supplied = authorization.split(" ", 1)[1].strip()
+    if not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+
 @app.get("/health")
 def health():
-    """Simple liveness check, and tells you whether a real API key is configured."""
-    return {"status": "ok", "ai_enabled": settings.has_ai, "model": settings.anthropic_model}
+    """Liveness check. Does not reveal the API key or the service token."""
+    return {
+        "status": "ok",
+        "ai_enabled": settings.has_ai,
+        "model": settings.anthropic_model,
+        "auth_configured": settings.auth_configured,
+    }
 
 
 @app.post("/extract", response_model=ExtractionResult)
-def extract(request: CVExtractionRequest) -> ExtractionResult:
+def extract(
+    request: CVExtractionRequest,
+    _: None = Depends(require_service_token),
+) -> ExtractionResult:
     """AI #1 - private CV/credential extraction. See extraction.extract_cv."""
     return extract_cv(request.cv_text)
 
 
 @app.post("/parse-job", response_model=JobRequirements)
-def parse_job(request: JobDescriptionRequest) -> JobRequirements:
+def parse_job(
+    request: JobDescriptionRequest,
+    _: None = Depends(require_service_token),
+) -> JobRequirements:
     """AI #2 - job requirement analysis. See extraction.extract_job_requirements."""
     return extract_job_requirements(request.description)

@@ -37,6 +37,8 @@ def _install_import_stubs() -> None:
         fastapi.UploadFile = type("UploadFile", (), {})
         fastapi.File = lambda *args, **kwargs: None
         fastapi.Form = lambda *args, **kwargs: None
+        fastapi.Header = lambda *args, **kwargs: None
+        fastapi.Depends = lambda *args, **kwargs: None
         sys.modules["fastapi"] = fastapi
 
     if "pypdf" not in sys.modules:

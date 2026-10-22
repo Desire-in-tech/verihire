@@ -172,7 +172,11 @@ class MidnightConnectivityTests(unittest.TestCase):
             health = client.get("/health")
             midnight = client.get("/midnight/health")
         self.assertEqual(health.status_code, 200)
-        self.assertEqual(health.json(), {"status": "healthy"})
+        health_body = health.json()
+        self.assertEqual(health_body["status"], "healthy")
+        self.assertIn("persistence", health_body)
+        self.assertIn("midnight_configured", health_body)
+        self.assertNotIn("postgres://", health.text)
         self.assertEqual(midnight.status_code, 200)
         self.assertEqual(midnight.json(), payload)
 
