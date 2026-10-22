@@ -300,7 +300,13 @@ function matchesAttempt(record: DeployAttemptRecord, identifier: string): boolea
 
 /**
  * Reconcile a stored attempt against indexer observations.
- * Empty and unavailable queries leave the record unchanged and blocked.
+ *
+ * Indexer status SUCCESS is the status the installed indexer client maps to
+ * SucceedEntirely in `toTxStatus`. Acceptance uses that status and a stored
+ * transaction id. The ledger contract address already on the record is kept
+ * and is not compared with indexer contract-address strings.
+ * Empty, pending, unknown, and unavailable queries leave the record unchanged
+ * and blocked.
  */
 export function decideDeployRecovery(
   record: DeployAttemptRecord,
@@ -310,8 +316,7 @@ export function decideDeployRecovery(
     (observation) =>
       observation.kind === "found" &&
       observation.status === "SUCCESS" &&
-      matchesAttempt(record, observation.identifier) &&
-      observation.contractAddresses.includes(record.contractAddress),
+      matchesAttempt(record, observation.identifier),
   );
   if (accepted && accepted.kind === "found") {
     return {

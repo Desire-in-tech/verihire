@@ -16,7 +16,7 @@ This document preserves the current development state so work can continue later
 
 ## What is already implemented
 
-Steps 4.14b–4.14i are in the working tree captured by `fd03d98`. Step 4.14k was investigated and is not implemented.
+Steps 4.14b–4.14i are in `fd03d98`. Step 4.14k's transaction-id confirmation is in the commit that updates this document.
 
 Deployment recovery files:
 
@@ -50,12 +50,13 @@ Related project changes included in the same checkpoint, outside the deploy-comm
 - Indexer `FAILURE` and `PARTIAL_SUCCESS` become `included-unsuccessful` and still block a new deployment.
 - The deploy command checks loopback `undeployed` endpoints before it builds providers.
 - Wallet stop failure is reported separately from the deployment result.
-- Acceptance currently requires the stored transaction id and exact inclusion of the stored contract-address string in the indexer `contractActions.address` list.
+- Acceptance requires indexer status `SUCCESS` for a stored transaction id. That is the status the installed indexer client maps to `SucceedEntirely`. The ledger contract address captured at construction is kept and is not compared with indexer contract-address strings.
 
 ## Known limitations
 
 - The ledger address string and the indexer contract-address string have not been shown to be the same encoding. Do not invent a prefix, length, or conversion.
-- Because acceptance still requires that exact string match, a successful deployment can remain `submitted` instead of `accepted` if the two strings differ. That blocked record must not be deleted to force another deployment.
+- Confirmation means the stored transaction id was found with indexer status `SUCCESS`. It does not re-read `ContractDeploy.address` from the deserialized transaction. The saved ledger address remains the address to copy into `CONTRACT_ADDRESS`.
+- A successful transaction id must not be used as permission to deploy again. `accepted` still blocks another deployment.
 - A `constructed` record has no transaction id. It still blocks, and retiring it is a manual operator decision. The unproven transaction is not stored, so a later deploy would be a different contract.
 - If the signing key is written and submission then fails or the process stops, the record stays `submission-intended`. The key is not deleted and the same unproven transaction cannot be resumed.
 - `watchForTxData` has no timeout. The command's reconcile path uses one fetch and treats errors as unavailable.
@@ -67,18 +68,17 @@ The ledger-to-indexer address comparison is not verified. Installed comments dis
 
 ## Step 4.14k
 
-A read-only inspection of the installed SDK found a confirmation path that does not compare those address strings:
+Implemented in the recovery decision, not by calling `deployContract`.
 
-- `submitDeployTx` proves, balances, and submits, then waits with `watchForTxData` on the transaction id returned by `submitTransaction` (`identifiers().at(-1)`).
-- Full success is `status === SucceedEntirely`, which the indexer client maps from transaction result `SUCCESS`.
-- That path queries `transactions(offset: { identifier })`. It does not read `contractActions.address`.
-- The contract address returned to the caller is the ledger address saved before submission.
+`decideDeployRecovery` accepts a `found` observation only when its identifier is one of the stored identifiers or `watchId` and its status is `SUCCESS`. The installed indexer client maps that status to `SucceedEntirely` in `toTxStatus`. `FAILURE` and `PARTIAL_SUCCESS` stay `included-unsuccessful`. Empty, pending, unknown, and unavailable observations stay blocked. A different indexer contract-address string does not block `SUCCESS` and does not replace the stored ledger address.
 
-This approach has not been implemented or tested in VeriHire. `decideDeployRecovery` still requires the indexer address string to contain the stored ledger address. The offline test `acceptance requires the stored transaction id and contract address` still encodes that current rule.
+The post-submit watch still uses the transaction id. The one-shot reconcile query reads `transactionResult.status` and `identifiers` for that same id. Neither path converts a contract address.
 
-## Next planned task
+Offline checks after this patch: `git diff --check` clean, `tsc --noEmit` exit 0, and 27 tests passed (`deploy-attempt`, `eligibility`, and `local-network`). No wallet was started and no transaction was submitted.
 
-Review the exact installed SDK source and the current `deploy.ts`, `deploy-flow.ts`, and `deploy-attempt.ts` code. Then make the smallest patch that confirms a stored transaction id through the supported `watchForTxData` / transaction-identifier path and accepts only `SucceedEntirely`, without comparing contract-address strings and without inventing a conversion. Update the offline tests and review the diff before any deployment discussion.
+## Next step
+
+Deployment is still not authorized. The next action is a separate explicit approval before any wallet start, proof, or submission. Do not repeat funding. Do not delete an attempt record to force another deployment.
 
 ## Do not do these without a new explicit approval
 

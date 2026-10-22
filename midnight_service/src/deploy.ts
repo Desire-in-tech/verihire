@@ -3,9 +3,11 @@
  *
  * The command refuses to start when midnight_service/.local/verihire-deploy-attempt.json
  * exists. An indexer miss does not clear that record and does not start
- * another deployment. Success is printed only after the indexer reports the
- * stored transaction id and the same contract address string. Copy that
- * address into CONTRACT_ADDRESS by hand; this script does not edit .env.
+ * another deployment. Success is printed only after the stored transaction
+ * id is reported with indexer status SUCCESS, the status the installed SDK
+ * maps to SucceedEntirely. The ledger address captured at construction is
+ * kept. Copy that address into CONTRACT_ADDRESS by hand; this script does
+ * not edit .env.
  *
  * Run with: npm run deploy-contract
  */

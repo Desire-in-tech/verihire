@@ -327,7 +327,7 @@ test("an uncertain indexer response does not become accepted", async () => {
         }),
       }),
     );
-    assert.equal(mismatch.state, "submitted");
+    assert.equal(mismatch.state, "accepted");
     assert.equal(mismatch.contractAddress, "contract-address");
   } finally {
     attempt.cleanup();
@@ -475,7 +475,7 @@ test("an indexer miss leaves the attempt blocked", () => {
   assert.deepEqual(decision.record, current);
 });
 
-test("acceptance requires the stored transaction id and contract address", () => {
+test("acceptance requires the stored transaction id and keeps the ledger address", () => {
   const current = record();
   const accepted = decideDeployRecovery(current, [
     {
@@ -491,7 +491,7 @@ test("acceptance requires the stored transaction id and contract address", () =>
   assert.equal(accepted.record.watchId, "final-id");
   assert.equal(blocksNewDeployment(accepted.record), true);
 
-  const wrongAddress = decideDeployRecovery(current, [
+  const differentIndexerAddress = decideDeployRecovery(current, [
     {
       kind: "found",
       identifier: "final-id",
@@ -499,8 +499,9 @@ test("acceptance requires the stored transaction id and contract address", () =>
       contractAddresses: ["other-contract"],
     },
   ]);
-  assert.equal(wrongAddress.kind, "blocked");
-  assert.equal(wrongAddress.record.state, "submission-intended");
+  assert.equal(differentIndexerAddress.kind, "accepted");
+  assert.equal(differentIndexerAddress.record.contractAddress, "contract-address");
+  assert.equal(differentIndexerAddress.record.state, "accepted");
 
   const wrongId = decideDeployRecovery(current, [
     {
@@ -511,6 +512,74 @@ test("acceptance requires the stored transaction id and contract address", () =>
     },
   ]);
   assert.equal(wrongId.kind, "blocked");
+  assert.equal(wrongId.record, current);
+});
+
+test("pending, failed, and unknown confirmation stay fail-closed", () => {
+  const current = record({ state: "submitted" });
+  for (const observation of [
+    { kind: "empty", identifier: "final-id" },
+    { kind: "unavailable", identifier: "final-id" },
+  ] as const) {
+    const decision = decideDeployRecovery(current, [observation]);
+    assert.equal(decision.kind, "blocked");
+    assert.equal(decision.record, current);
+  }
+
+  const failed = decideDeployRecovery(current, [
+    {
+      kind: "found",
+      identifier: "final-id",
+      status: "FAILURE",
+      contractAddresses: ["contract-address"],
+    },
+  ]);
+  assert.equal(failed.kind, "included-unsuccessful");
+  assert.equal(failed.record.contractAddress, "contract-address");
+  assert.equal(blocksNewDeployment(failed.record), true);
+});
+
+test("an interrupted submission is not resubmitted when the transaction id succeeds", async () => {
+  const attempt = tempAttempt();
+  let constructed = false;
+  let submitted = false;
+  try {
+    installRecord(attempt.path, record({ state: "submitted" }));
+    await assert.rejects(
+      () =>
+        executeDeploymentAttempt(
+          deploymentDeps(attempt.path, {
+            construct: async () => {
+              constructed = true;
+              return { contractAddress: "other", signingKey: "secret" };
+            },
+            submit: async () => {
+              submitted = true;
+              return "new-id";
+            },
+          }),
+        ),
+      DeploymentBlocked,
+    );
+    assert.equal(constructed, false);
+    assert.equal(submitted, false);
+
+    const recovered = decideDeployRecovery(readDeployAttempt(attempt.path)!, [
+      {
+        kind: "found",
+        identifier: "final-id",
+        status: "SUCCESS",
+        contractAddresses: [],
+      },
+    ]);
+    assert.equal(recovered.kind, "accepted");
+    assert.equal(recovered.record.contractAddress, "contract-address");
+    assert.equal(recovered.record.identifiers.includes("final-id"), true);
+    assert.equal(blocksNewDeployment(recovered.record), true);
+    assert.equal(readDeployAttempt(attempt.path)?.state, "submitted");
+  } finally {
+    attempt.cleanup();
+  }
 });
 
 test("a failed inclusion stays blocked and is not treated as absent", () => {
@@ -549,6 +618,30 @@ test("indexer transaction payloads become observations without a wallet", () => 
   );
   assert.equal(observationFromTxQuery("final-id", { data: { transactions: [] } }).kind, "empty");
   assert.equal(observationFromTxQuery("final-id", { errors: [{}] }).kind, "unavailable");
+  for (const status of ["PENDING", "UNKNOWN", undefined]) {
+    const observation = observationFromTxQuery("final-id", {
+      data: {
+        transactions: [
+          {
+            identifiers: ["final-id"],
+            transactionResult: { status },
+          },
+        ],
+      },
+    });
+    assert.equal(observation.kind, "unavailable");
+  }
+  const missingId = observationFromTxQuery("final-id", {
+    data: {
+      transactions: [
+        {
+          identifiers: ["someone-else"],
+          transactionResult: { status: "SUCCESS" },
+        },
+      ],
+    },
+  });
+  assert.equal(missingId.kind, "unavailable");
 });
 
 test("wallet stop failure keeps the deployment result and the primary error", async () => {
