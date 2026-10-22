@@ -27,3 +27,19 @@ test("a resolved wallet that is not strictly synced cannot balance", async () =>
     /wallet synchronization did not complete before DUST balancing/,
   );
 });
+
+test("a hanging wallet sync times out once before submission and does not retry", async () => {
+  let calls = 0;
+  await assert.rejects(
+    () =>
+      assertWalletReady(
+        () => {
+          calls += 1;
+          return new Promise(() => {});
+        },
+        20,
+      ),
+    /wallet synchronization timed out before transaction submission/,
+  );
+  assert.equal(calls, 1);
+});

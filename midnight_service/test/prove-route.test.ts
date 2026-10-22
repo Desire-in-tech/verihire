@@ -190,6 +190,23 @@ test("POST /prove rejects missing, blank, malformed, and non-local networks befo
   }
 });
 
+test("POST /prove fails before submission when wallet sync times out", async () => {
+  const { app, order } = routeHarness({
+    env: EXPLICIT_LOCAL,
+    awaitWalletReady: () => {
+      order.push("ready");
+      return assertWalletReady(() => new Promise(() => {}), 20);
+    },
+  });
+  const response = await postProve(app, proofBody());
+  assert.equal(response.status, 502);
+  assert.equal(response.body.verification_status, "failed");
+  assert.equal(response.body.proof_id, null);
+  assert.equal(response.body.block_height, null);
+  assert.match(String(response.body.message), /timed out before transaction submission/);
+  assert.deepEqual(order, ["connect", "ready"]);
+});
+
 test("POST /prove waits for a synced wallet before join and submission", async () => {
   const { app, order } = routeHarness({
     env: EXPLICIT_LOCAL,
