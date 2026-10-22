@@ -18,6 +18,7 @@ venv/
 **/next-env.d.ts
 
 midnight_service/managed/
+midnight-level-db/
 
 test_data/
 

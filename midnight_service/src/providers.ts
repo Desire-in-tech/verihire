@@ -4,6 +4,7 @@ import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-p
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
+import { assertWalletReady } from "./wallet-ready.js";
 import type {
   MidnightProvider,
   UnboundTransaction,
@@ -49,6 +50,13 @@ export type WalletContext = {
   dustSecretKey: ledger.DustSecretKey;
   unshieldedKeystore: UnshieldedKeystore;
 };
+
+function publicError(error: unknown): string {
+  const name = error instanceof Error ? error.name : "Error";
+  const message = error instanceof Error ? error.message : "";
+  const redacted = message.replace(/\b[0-9a-fA-F]{32,}\b/g, "[redacted-hex]");
+  return redacted ? `${name}: ${redacted}` : name;
+}
 
 export function readWalletSeed(value = process.env.WALLET_SEED): Uint8Array {
   const seed = value?.trim();
@@ -120,7 +128,16 @@ async function createWallet(env: MidnightEnvironment): Promise<WalletContext> {
         ledger.LedgerParameters.initialParameters().dust,
       ),
   });
-  await wallet.start(shieldedSecretKeys, dustSecretKey);
+  try {
+    await wallet.start(shieldedSecretKeys, dustSecretKey);
+  } catch (startError) {
+    try {
+      await wallet.stop();
+    } catch (stopError) {
+      console.error(`wallet stop failed: ${publicError(stopError)}`);
+    }
+    throw startError;
+  }
   return { wallet, shieldedSecretKeys, dustSecretKey, unshieldedKeystore };
 }
 
@@ -153,31 +170,45 @@ export async function buildProviders(env: MidnightEnvironment) {
 
   setNetworkId(env.networkId);
   const walletContext = await createWallet(env);
-  const privateStateProvider = levelPrivateStateProvider({
-    privateStateStoreName: "verihire-private-state",
-    signingKeyStoreName: "verihire-signing-keys",
-    privateStoragePasswordProvider: () => env.storagePassword,
-    accountId: env.walletAddress || walletContext.unshieldedKeystore.getBech32Address().asString(),
-  });
-  const publicDataProvider = indexerPublicDataProvider(
-    env.indexerUrl,
-    env.indexerWsUrl,
-  );
-  const zkConfigProvider = new NodeZkConfigProvider<VerihireCircuitId>(
-    env.compiledContractDir,
-  );
-  const proofProvider = httpClientProofProvider(
-    env.proofServerUrl,
-    zkConfigProvider,
-  );
-  const walletAndMidnightProvider = createWalletProviders(walletContext);
+  try {
+    const walletAddress =
+      env.walletAddress || walletContext.unshieldedKeystore.getBech32Address().asString();
+    const privateStateProvider = levelPrivateStateProvider({
+      privateStateStoreName: "verihire-private-state",
+      signingKeyStoreName: "verihire-signing-keys",
+      privateStoragePasswordProvider: () => env.storagePassword,
+      accountId: walletAddress,
+    });
+    const publicDataProvider = indexerPublicDataProvider(
+      env.indexerUrl,
+      env.indexerWsUrl,
+    );
+    const zkConfigProvider = new NodeZkConfigProvider<VerihireCircuitId>(
+      env.compiledContractDir,
+    );
+    const proofProvider = httpClientProofProvider(
+      env.proofServerUrl,
+      zkConfigProvider,
+    );
+    const walletAndMidnightProvider = createWalletProviders(walletContext);
 
-  return {
-    privateStateProvider,
-    publicDataProvider,
-    zkConfigProvider,
-    proofProvider,
-    walletProvider: walletAndMidnightProvider,
-    midnightProvider: walletAndMidnightProvider,
-  };
+    return {
+      privateStateProvider,
+      publicDataProvider,
+      zkConfigProvider,
+      proofProvider,
+      walletProvider: walletAndMidnightProvider,
+      midnightProvider: walletAndMidnightProvider,
+      walletAddress,
+      whenWalletReady: () => assertWalletReady(() => walletContext.wallet.waitForSyncedState()),
+      stopWallet: () => walletContext.wallet.stop(),
+    };
+  } catch (error) {
+    try {
+      await walletContext.wallet.stop();
+    } catch (stopError) {
+      console.error(`wallet stop failed: ${publicError(stopError)}`);
+    }
+    throw error;
+  }
 }

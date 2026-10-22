@@ -41,4 +41,4 @@ def extract_text_from_pdf(pdf_content: bytes) -> str:
     except ValueError:
         raise
     except Exception as exc:
-        raise ValueError(f"Failed to read PDF: {exc}") from exc
+        raise ValueError("Failed to read PDF.") from exc

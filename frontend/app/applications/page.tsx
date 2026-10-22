@@ -10,7 +10,7 @@ export default function ApplicationsPage() {
         <div className="grid gap-4 md:grid-cols-4">
           {[
             ["Total", "6"],
-            ["Verified", "4"],
+            ["Midnight proofs", "None"],
             ["In review", "1"],
             ["Interviews", "1"],
           ].map(([label, value]) => (

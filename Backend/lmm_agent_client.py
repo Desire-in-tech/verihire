@@ -14,30 +14,22 @@ Pipeline:
     structured CV data
 """
 
-import httpx
+import os
 from typing import Any
 
+import httpx
+
 from Backend.models import ExtractedCVData
-from Backend.config import get_settings
 
 
 class LMMAgentClient:
     """Client for the VeriHire AI extraction service."""
 
-    def __init__(self):
-        self.settings = get_settings()
-
-        self.base_url = (
-            getattr(self.settings, "AI_SERVICE_URL", None)
-            or getattr(self.settings, "LMM_AGENT_URL", None)
-            or "http://localhost:8001"
-        ).rstrip("/")
-
-        self.extract_endpoint = f"{self.base_url}/extract"
-
-        self.timeout = float(
-            getattr(self.settings, "AI_SERVICE_TIMEOUT", 60.0)
-        )
+    def _endpoint(self) -> tuple[str, float, str]:
+        base_url = os.environ.get("AI_SERVICE_URL", "http://localhost:8001").rstrip("/")
+        timeout = float(os.environ.get("AI_SERVICE_TIMEOUT", "60"))
+        token = os.environ.get("AI_SERVICE_TOKEN", "").strip()
+        return f"{base_url}/extract", timeout, token
 
     async def extract_cv(self, cv_text: str) -> ExtractedCVData:
         """
@@ -48,30 +40,29 @@ class LMMAgentClient:
         if not cv_text or not cv_text.strip():
             raise ValueError("CV text cannot be empty")
 
+        endpoint, timeout, token = self._endpoint()
+        if not token:
+            raise RuntimeError("CV extraction is unavailable.")
+
         payload = {
             "cv_text": cv_text.strip()
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
-                    self.extract_endpoint,
+                    endpoint,
                     json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
                 )
 
                 response.raise_for_status()
 
         except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
-                "AI service returned HTTP "
-                f"{exc.response.status_code}: {exc.response.text}"
-            ) from exc
+            raise RuntimeError("CV extraction is unavailable.") from exc
 
         except httpx.RequestError as exc:
-            raise RuntimeError(
-                "Could not connect to AI service at "
-                f"{self.extract_endpoint}: {exc}"
-            ) from exc
+            raise RuntimeError("CV extraction is unavailable.") from exc
 
         try:
             response_data: dict[str, Any] = response.json()

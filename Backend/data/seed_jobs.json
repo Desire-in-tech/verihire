@@ -60,6 +60,24 @@
       },
       "verification_status": "unverified",
       "is_active": true
+    },
+    {
+      "job_id": "job-004",
+      "title": "Python Backend Developer — Midnight Demo",
+      "company": "VeriHire",
+      "description": "Local Midnight demo. The circuit checks caller-supplied Python years, PostgreSQL presence, and a bachelor's-or-higher flag. It does not attest the CV.",
+      "criteria": {
+        "required_skills": {
+          "python": 2,
+          "postgresql": 0
+        },
+        "min_years_experience": 0,
+        "education_level": "bachelors",
+        "languages": [],
+        "certifications": []
+      },
+      "verification_status": "unverified",
+      "is_active": true
     }
   ]
 }

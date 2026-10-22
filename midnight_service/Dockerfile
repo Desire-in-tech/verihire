@@ -13,7 +13,8 @@ COPY contract/verihire.compact /app/contract/verihire.compact
 RUN curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/midnightntwrk/compact/releases/latest/download/compact-installer.sh \
   | sh \
-  && /root/.local/bin/compact compile /app/contract/verihire.compact /app/managed/verihire
+  && /root/.local/bin/compact update 0.31.1 \
+  && /root/.local/bin/compact compile +0.31.1 /app/contract/verihire.compact /app/managed/verihire
 
 COPY midnight_service/ ./
 RUN npm run build

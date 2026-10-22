@@ -21,18 +21,33 @@ load_dotenv()
 
 
 class Settings:
-    # Anthropic API key. Get one at https://console.anthropic.com/
-    anthropic_api_key: str | None = os.getenv("ANTHROPIC_API_KEY")
+    # Values are read on each access so a process can be configured without
+    # baking secrets into the module, and so tests see the current environment.
 
-    # Which Claude model to call. Set this to whatever current model name
-    # your Anthropic console shows you (model IDs change over time, so we
-    # deliberately don't hardcode one here) - anthropic docs also list them at
-    # https://docs.claude.com/en/docs/about-claude/models
-    anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
+    @property
+    def anthropic_api_key(self) -> str | None:
+        return os.getenv("ANTHROPIC_API_KEY") or None
 
-    # Host/port this service listens on.
-    host: str = os.getenv("AI_SERVICE_HOST", "0.0.0.0")
-    port: int = int(os.getenv("AI_SERVICE_PORT", "8001"))
+    @property
+    def anthropic_model(self) -> str:
+        # Model IDs change. Override ANTHROPIC_MODEL with the current console name.
+        return os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5")
+
+    @property
+    def host(self) -> str:
+        return os.getenv("AI_SERVICE_HOST", "0.0.0.0")
+
+    @property
+    def port(self) -> int:
+        return int(os.getenv("AI_SERVICE_PORT", "8001"))
+
+    @property
+    def service_token(self) -> str:
+        return os.getenv("AI_SERVICE_TOKEN", "").strip()
+
+    @property
+    def auth_configured(self) -> bool:
+        return bool(self.service_token)
 
     @property
     def has_ai(self) -> bool:
