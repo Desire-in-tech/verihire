@@ -50,7 +50,7 @@ export function CvUploadForm() {
 
     async function loadJobs() {
       try {
-        const response = await fetch(`${apiUrl}/api/employer/jobs`);
+        const response = await fetch(`${apiUrl}/api/jobs`);
         const payload = await response.json().catch(() => null);
         if (!response.ok) {
           const detail = payload && typeof payload === "object" && typeof (payload as { detail?: unknown }).detail === "string"

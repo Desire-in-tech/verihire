@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import {
@@ -8,6 +9,7 @@ import {
   parseEmployerResults,
   type EmployerResultRow,
 } from "@/lib/employer-results";
+import { clearEmployerToken, employerAuthHeaders, readEmployerToken } from "@/lib/session";
 import { verificationIsPositive, verificationLabel } from "@/lib/verification-label";
 
 const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -30,16 +32,37 @@ export function EmployerResults() {
   const [rows, setRows] = useState<EmployerResultRow[] | null>(null);
   const [jobCount, setJobCount] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [needsAuth, setNeedsAuth] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
+      if (!readEmployerToken()) {
+        if (!cancelled) {
+          setNeedsAuth(true);
+          setRows(null);
+          setJobCount(null);
+          setError("");
+        }
+        return;
+      }
       try {
+        const headers = employerAuthHeaders();
         const [resultsResponse, jobsResponse] = await Promise.all([
-          fetch(`${apiUrl}/api/employer/results`),
-          fetch(`${apiUrl}/api/employer/jobs`),
+          fetch(`${apiUrl}/api/employer/results`, { headers }),
+          fetch(`${apiUrl}/api/employer/jobs`, { headers }),
         ]);
+        if (resultsResponse.status === 401 || jobsResponse.status === 401) {
+          clearEmployerToken();
+          if (!cancelled) {
+            setNeedsAuth(true);
+            setRows(null);
+            setJobCount(null);
+            setError("");
+          }
+          return;
+        }
         const resultsPayload = await resultsResponse.json().catch(() => null);
         const jobsPayload = await jobsResponse.json().catch(() => null);
         if (!resultsResponse.ok) {
@@ -57,6 +80,7 @@ export function EmployerResults() {
             ? (jobsPayload as { jobs: unknown[] }).jobs.length
             : null;
         if (!cancelled) {
+          setNeedsAuth(false);
           setRows(parsed);
           setJobCount(resultsResponse.ok && jobsResponse.ok ? listedJobs : null);
           setError("");
@@ -99,8 +123,16 @@ export function EmployerResults() {
 
       <h2 className="text-2xl font-semibold tracking-[-0.05em] text-white">Candidate verifications</h2>
 
+      {needsAuth ? (
+        <p className="text-sm text-[#9aa7b8]">
+          Sign in to view results for your employer account.{" "}
+          <Link href="/login" className="text-[#8adbd5]">
+            Sign in
+          </Link>
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-[#ff9b9b]">{error}</p> : null}
-      {rows === null && !error ? <p className="text-sm text-[#9aa7b8]">Loading stored Midnight results…</p> : null}
+      {rows === null && !error && !needsAuth ? <p className="text-sm text-[#9aa7b8]">Loading stored Midnight results…</p> : null}
 
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
@@ -114,7 +146,7 @@ export function EmployerResults() {
               </tr>
             </thead>
             <tbody>
-              {rows && rows.length === 0 ? (
+              {rows && rows.length === 0 && !needsAuth ? (
                 <tr className="border-t border-[#1c2430]">
                   <td className="px-5 py-6 text-[#9aa7b8]" colSpan={4}>
                     No candidate verifications have been recorded.

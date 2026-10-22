@@ -11,15 +11,16 @@ export default function DashboardPage() {
         <div className="rounded-[28px] border border-[#204d48] bg-[#101d1d] p-6 text-[#edf3f8]">
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8fe0ca]">Your privacy impact</div>
           <div className="text-3xl font-semibold tracking-[-0.05em]">0 unnecessary disclosures</div>
-          <p className="mt-2 text-[#b6c4d1]">Source documents stay with the candidate. Employers receive a Midnight claim after upload.</p>
+          <p className="mt-2 text-[#b6c4d1]">Source documents stay with the candidate. A public deployment reports Midnight as unavailable until its own infrastructure is configured.</p>
         </div>
+        <p className="text-sm text-[#9aa7b8]">These cards are sample copy. They are not a live count of Midnight verifications.</p>
 
         <div className="grid gap-4 md:grid-cols-4">
           {[
             ["Applications", "6"],
             ["Midnight proofs", "None"],
             ["Matched jobs", "12"],
-            ["Pending", "2"],
+            ["Pending", "—"],
           ].map(([label, value]) => (
             <Card key={label} className="p-4">
               <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#9aa7b8]">{label}</div>

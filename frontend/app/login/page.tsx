@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { AuthForm } from "@/components/auth-form";
 
 export default function LoginPage() {
   return (
@@ -38,30 +38,10 @@ export default function LoginPage() {
       <div className="flex flex-1 items-center justify-center p-6">
         <div className="w-full max-w-md rounded-[26px] border border-[#1c2430] bg-[#0f1620] p-8 shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
           <Link href="/" className="mb-6 inline-flex text-sm text-[#9aa7b8] hover:text-white">← Back home</Link>
-          <h2 className="text-3xl font-semibold tracking-[-0.05em] text-white">Welcome back</h2>
-          <p className="mt-2 text-[#9aa7b8]">Sign in to continue to VeriHire.</p>
+          <h2 className="text-3xl font-semibold tracking-[-0.05em] text-white">Employer sign in</h2>
+          <p className="mt-2 text-[#9aa7b8]">Sign in to the employer workspace. This does not submit a candidate proof.</p>
 
-          <form className="mt-8 space-y-5">
-            <div>
-              <label className="mb-2 block text-sm text-[#dae5f4]">Email address</label>
-              <input
-                type="email"
-                placeholder="you@example.com"
-                className="w-full rounded-xl border border-[#2a3440] bg-[#0b1118] px-4 py-3 text-[#edf3f8] placeholder:text-[#77869c] outline-none ring-0 transition focus:border-[#31d4c7]"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm text-[#dae5f4]">Password</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                className="w-full rounded-xl border border-[#2a3440] bg-[#0b1118] px-4 py-3 text-[#edf3f8] placeholder:text-[#77869c] outline-none ring-0 transition focus:border-[#31d4c7]"
-              />
-            </div>
-
-            <Button href="/dashboard" className="w-full">Sign in</Button>
-          </form>
+          <AuthForm mode="login" />
 
           <div className="mt-6 text-center text-sm text-[#9aa7b8]">
             New to VeriHire? <Link href="/signup" className="text-[#8adbd5]">Create account</Link>
