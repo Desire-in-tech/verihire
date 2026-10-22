@@ -1,0 +1,83 @@
+{
+  "jobs": [
+    {
+      "job_id": "job-001",
+      "title": "Senior Python Developer",
+      "company": "TechCorp Inc",
+      "description": "Looking for an experienced Python developer with strong backend skills and expertise in FastAPI frameworks",
+      "criteria": {
+        "required_skills": {
+          "python": 5,
+          "fastapi": 3,
+          "postgresql": 2,
+          "docker": 2
+        },
+        "min_years_experience": 5,
+        "education_level": "bachelors",
+        "languages": ["English"],
+        "certifications": []
+      },
+      "verification_status": "verified",
+      "is_active": true
+    },
+    {
+      "job_id": "job-002",
+      "title": "Full Stack JavaScript Developer",
+      "company": "StartupXYZ",
+      "description": "Seeking a full-stack developer proficient in React, Node.js, and cloud deployment",
+      "criteria": {
+        "required_skills": {
+          "javascript": 3,
+          "react": 2,
+          "node.js": 2,
+          "aws": 1
+        },
+        "min_years_experience": 3,
+        "education_level": "bachelors",
+        "languages": ["English"],
+        "certifications": ["aws solutions architect associate"]
+      },
+      "verification_status": "verified",
+      "is_active": true
+    },
+    {
+      "job_id": "job-003",
+      "title": "Data Science Engineer",
+      "company": "DataInsights LLC",
+      "description": "Join our data science team working on machine learning pipelines and data analysis",
+      "criteria": {
+        "required_skills": {
+          "python": 4,
+          "machine learning": 2,
+          "statistics": 2,
+          "spark": 2,
+          "sql": 2
+        },
+        "min_years_experience": 4,
+        "education_level": "masters",
+        "languages": ["English"],
+        "certifications": ["google professional data engineer"]
+      },
+      "verification_status": "unverified",
+      "is_active": true
+    },
+    {
+      "job_id": "job-004",
+      "title": "Python Backend Developer — Midnight Demo",
+      "company": "VeriHire",
+      "description": "Local Midnight demo. The circuit checks caller-supplied Python years, PostgreSQL presence, and a bachelor's-or-higher flag. It does not attest the CV.",
+      "criteria": {
+        "required_skills": {
+          "python": 2,
+          "postgresql": 0
+        },
+        "min_years_experience": 0,
+        "education_level": "bachelors",
+        "languages": [],
+        "certifications": []
+      },
+      "verification_status": "unverified",
+      "is_active": true
+    }
+  ]
+}
