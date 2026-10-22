@@ -89,3 +89,45 @@ export function assertLocalDeploymentTargets(config: LocalNetworkConfig): void {
   assertLoopbackUrl(config.indexerWsUrl, "INDEXER_WS_URL", "ws:", "8088", "/api/v4/graphql/ws");
   assertLoopbackUrl(config.proofServerUrl, "PROOF_SERVER_URL", "http:", "6300", "/");
 }
+
+const PROOF_NETWORK_KEYS = [
+  "NETWORK_ID",
+  "NODE_URL",
+  "INDEXER_URL",
+  "INDEXER_WS_URL",
+  "PROOF_SERVER_URL",
+] as const;
+
+function requiredProofValue(
+  env: Record<string, string | undefined>,
+  key: (typeof PROOF_NETWORK_KEYS)[number],
+): string {
+  const value = env[key];
+  if (value === undefined || value.trim() === "") {
+    throw new Error(`${key} must be set explicitly for proof submission`);
+  }
+  return value.trim();
+}
+
+/**
+ * Proof submissions do not use readLocalNetworkConfig's localhost defaults.
+ * Every endpoint must be present and then pass the deployment allowlist.
+ * The local stack's network id is `undeployed`, not the chain name `undeployed1`.
+ */
+export function requireExplicitLocalProofConfig(
+  env: Record<string, string | undefined>,
+): LocalNetworkConfig {
+  const networkId = requiredProofValue(env, "NETWORK_ID");
+  if (networkId !== "undeployed" && networkId !== "preprod") {
+    throw new Error(`NETWORK_ID must be undeployed or preprod, received ${networkId}`);
+  }
+  const config: LocalNetworkConfig = {
+    networkId,
+    nodeUrl: requiredProofValue(env, "NODE_URL"),
+    indexerUrl: requiredProofValue(env, "INDEXER_URL"),
+    indexerWsUrl: requiredProofValue(env, "INDEXER_WS_URL"),
+    proofServerUrl: requiredProofValue(env, "PROOF_SERVER_URL"),
+  };
+  assertLocalDeploymentTargets(config);
+  return config;
+}
