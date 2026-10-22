@@ -53,6 +53,7 @@ export type DeploymentDependencies = {
   now: () => string;
   walletAddress: string;
   nodeUrls: Pick<DeployAttemptRecord, "nodeUrl" | "indexerUrl" | "indexerWsUrl" | "proofServerUrl">;
+  awaitWalletReady: () => Promise<void>;
   construct: () => Promise<{ contractAddress: string; signingKey: unknown }>;
   readSigningKey: (contractAddress: string) => Promise<unknown>;
   persistSigningKey: (contractAddress: string, signingKey: unknown) => Promise<void>;
@@ -63,7 +64,8 @@ export type DeploymentDependencies = {
 
 /**
  * One deployment attempt. An existing record blocks every callback that could
- * construct or submit. The final transaction id is written and read back
+ * construct or submit. Wallet readiness is required before construction and
+ * before DUST balancing. The final transaction id is written and read back
  * before submit is called.
  */
 export async function executeDeploymentAttempt(
@@ -72,6 +74,8 @@ export async function executeDeploymentAttempt(
   assertLocalDeploymentTargets(deps.network);
   const existing = readDeployAttempt(deps.attemptPath);
   if (existing) throw new DeploymentBlocked(existing);
+
+  await deps.awaitWalletReady();
 
   const constructedAt = deps.now();
   const built = await deps.construct();
