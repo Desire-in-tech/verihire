@@ -107,6 +107,17 @@ test("deployment defaults remain available while proof config rejects blanks", (
   assert.throws(
     () =>
       requireExplicitLocalProofConfig({
+        NETWORK_ID: "preprod",
+        NODE_URL: "http://127.0.0.1:9944",
+        INDEXER_URL: "http://127.0.0.1:8088/api/v4/graphql",
+        INDEXER_WS_URL: "ws://127.0.0.1:8088/api/v4/graphql/ws",
+        PROOF_SERVER_URL: "http://127.0.0.1:6300",
+      }),
+    /proof submission is restricted to NETWORK_ID=undeployed/,
+  );
+  assert.throws(
+    () =>
+      requireExplicitLocalProofConfig({
         NETWORK_ID: " ",
         NODE_URL: " ",
         INDEXER_URL: "\t",

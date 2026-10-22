@@ -118,8 +118,8 @@ export function requireExplicitLocalProofConfig(
   env: Record<string, string | undefined>,
 ): LocalNetworkConfig {
   const networkId = requiredProofValue(env, "NETWORK_ID");
-  if (networkId !== "undeployed" && networkId !== "preprod") {
-    throw new Error(`NETWORK_ID must be undeployed or preprod, received ${networkId}`);
+  if (networkId !== "undeployed") {
+    throw new Error("proof submission is restricted to NETWORK_ID=undeployed");
   }
   const config: LocalNetworkConfig = {
     networkId,
