@@ -67,6 +67,19 @@ test("labels a refusal with every unsupported field", () => {
   assert.equal(verificationIsPositive(proof), false);
 });
 
+test("labels an unknown submitted outcome without a positive badge", () => {
+  const proof = {
+    ...base,
+    proof_data: {
+      verification_status: "unknown" as const,
+      eligible: null,
+      proof_id: "tx-submitted",
+    },
+  };
+  assert.equal(verificationLabel(proof), "Outcome unknown after submission. Do not resubmit.");
+  assert.equal(verificationIsPositive(proof), false);
+});
+
 test("an applicant_verified flag alone is not a positive badge", () => {
   const proof = { applicant_verified: true, proof_data: { verification_status: "failed" as const, eligible: null } };
   assert.equal(verificationIsPositive(proof), false);

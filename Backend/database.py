@@ -56,5 +56,9 @@ class Database:
             raise ValueError(f"Upload {upload_id} not found")
         return self.cv_uploads[upload_id]
 
+    def list_cv_uploads(self) -> list[dict]:
+        """Return stored uploads in insertion order."""
+        return list(self.cv_uploads.values())
+
 # Global database instance
 db = Database()

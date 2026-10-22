@@ -13,7 +13,7 @@ export default function ProfilePage() {
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#26313a] text-xl font-semibold text-[#edf3f8]">TR</div>
           <div>
             <h2 className="text-2xl font-semibold tracking-[-0.05em] text-white">{candidateProfile.name}</h2>
-            <Badge tone="green">✓ Identity verified</Badge>
+            <Badge tone="slate">{candidateProfile.privacyLevel}</Badge>
           </div>
         </div>
 

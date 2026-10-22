@@ -20,17 +20,6 @@ export type Application = {
   match: number;
 };
 
-export type VerificationStatus = "Not Verified" | "Pending" | "Verified" | "Needs attention" | "Failed";
-
-export type Verification = {
-  id: string;
-  title: string;
-  status: VerificationStatus;
-  summary: string;
-  proofId: string;
-  facts: string[];
-};
-
 export const jobs: Job[] = [
   {
     id: "backend-engineer",
@@ -129,46 +118,12 @@ export const applications: Application[] = [
   },
 ];
 
-export const verifications: Verification[] = [
-  {
-    id: "vig-001",
-    title: "Python and backend engineering",
-    status: "Verified",
-    summary: "Professional Python experience and backend delivery requirements satisfied.",
-    proofId: "VH-7A92-X31",
-    facts: ["Python ≥ 3 years", "Backend systems", "Production deployment"],
-  },
-  {
-    id: "vig-002",
-    title: "AWS deployment credential",
-    status: "Pending",
-    summary: "Employer requested a final review of cloud deployment evidence.",
-    proofId: "VH-9F12-Q66",
-    facts: ["AWS deployment", "CI/CD workflow", "Infrastructure support"],
-  },
-  {
-    id: "vig-003",
-    title: "PostgreSQL expertise",
-    status: "Needs attention",
-    summary: "Additional schema and optimization evidence may be required.",
-    proofId: "VH-3C44-A81",
-    facts: ["Schema design", "Query optimization", "Database migrations"],
-  },
-];
-
 export const candidateProfile = {
   name: "Trina Smith",
   headline: "Backend Engineer",
   skills: ["Python", "PostgreSQL", "AWS", "System Design"],
-  identityVerified: true,
   privacyLevel: "Private by default",
 };
-
-export const employerCandidates = [
-  { id: "vh-104", match: 96, role: "Backend Engineer", status: "Verified" },
-  { id: "vh-219", match: 91, role: "Backend Engineer", status: "Verified" },
-  { id: "vh-307", match: 87, role: "Machine Learning Engineer", status: "Pending" },
-];
 
 export type CVUploadResult = {
   upload_id: string;
@@ -182,7 +137,7 @@ export type CVUploadResult = {
     applicant_verified: boolean;
     proof_data?: {
       message?: string;
-      verification_status?: "verified" | "failed" | "unavailable" | "not_configured" | null;
+      verification_status?: "verified" | "failed" | "unavailable" | "not_configured" | "unknown" | null;
       eligible?: boolean | null;
       unsupported_criteria?: string[];
       proof_id?: string | null;

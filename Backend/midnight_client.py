@@ -211,6 +211,18 @@ class MidnightClient:
                 message=str(message or "Midnight verification failed."),
             )
 
+        if status == "unknown" and isinstance(proof_id, str) and proof_id:
+            return empty_proof(
+                verification_status="unknown",
+                eligible=None,
+                proof_id=proof_id,
+                block_height=block_height if isinstance(block_height, int) else None,
+                message=str(
+                    message
+                    or "The eligibility transaction was submitted. Its outcome is pending and unknown. Do not resubmit it automatically."
+                ),
+            )
+
         return empty_proof(
             verification_status="unavailable",
             eligible=None,
@@ -261,14 +273,17 @@ class MidnightClient:
             except ValueError:
                 body = {}
             status = body.get("verification_status")
-            if status not in {"failed", "unavailable"}:
-                status = "failed"
             proof_id = body.get("proof_id")
+            stored_proof_id = proof_id if isinstance(proof_id, str) and proof_id else None
+            if status == "unknown":
+                status = "unknown" if stored_proof_id else "unavailable"
+            elif status not in {"failed", "unavailable"}:
+                status = "failed"
             block_height = body.get("block_height")
             return empty_proof(
                 verification_status=status,
                 eligible=None,
-                proof_id=proof_id if isinstance(proof_id, str) and proof_id else None,
+                proof_id=stored_proof_id,
                 block_height=block_height if isinstance(block_height, int) else None,
                 message=str(body.get("message") or body.get("detail") or exc.response.text),
             )

@@ -348,6 +348,62 @@ class MidnightOutcomeTests(unittest.TestCase):
         )
         self.assertFalse(applicant_verified_from_proof(proof))
 
+    def test_http_unknown_keeps_submitted_proof_and_drops_eligibility(self) -> None:
+        request = httpx.Request("POST", "http://midnight.test/prove")
+        response = httpx.Response(
+            502,
+            json={
+                "verification_status": "unknown",
+                "eligible": True,
+                "proof_id": "tx-submitted",
+                "block_height": 9,
+                "message": (
+                    "The eligibility transaction was submitted. Its outcome is pending and unknown. "
+                    "Do not resubmit it automatically."
+                ),
+            },
+            request=request,
+        )
+        client = RecordingClient()
+        client.payload = httpx.HTTPStatusError("bad gateway", request=request, response=response)
+        proof = _prove(client, _job())
+        self.assertEqual(proof["verification_status"], "unknown")
+        self.assertIsNone(proof["eligible"])
+        self.assertEqual(proof["proof_id"], "tx-submitted")
+        self.assertEqual(proof["block_height"], 9)
+        self.assertIn("Do not resubmit", proof["message"])
+        self.assertFalse(applicant_verified_from_proof(proof))
+
+    def test_success_unknown_keeps_proof_id(self) -> None:
+        client = RecordingClient()
+        client.payload = {
+            "verification_status": "unknown",
+            "eligible": True,
+            "proof_id": "tx-200",
+            "block_height": 4,
+            "message": "pending",
+        }
+        proof = _prove(client, _job())
+        self.assertEqual(proof["verification_status"], "unknown")
+        self.assertIsNone(proof["eligible"])
+        self.assertEqual(proof["proof_id"], "tx-200")
+        self.assertFalse(applicant_verified_from_proof(proof))
+
+    def test_unknown_without_proof_id_is_unavailable(self) -> None:
+        request = httpx.Request("POST", "http://midnight.test/prove")
+        response = httpx.Response(
+            502,
+            json={"verification_status": "unknown", "eligible": True, "proof_id": None},
+            request=request,
+        )
+        client = RecordingClient()
+        client.payload = httpx.HTTPStatusError("bad gateway", request=request, response=response)
+        proof = _prove(client, _job())
+        self.assertEqual(proof["verification_status"], "unavailable")
+        self.assertIsNone(proof["eligible"])
+        self.assertIsNone(proof["proof_id"])
+        self.assertFalse(applicant_verified_from_proof(proof))
+
     def test_http_error_cannot_carry_a_positive_eligibility(self) -> None:
         request = httpx.Request("POST", "http://midnight.test/prove")
         response = httpx.Response(

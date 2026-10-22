@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from Backend.models import JobListResponse, Job, JobMatchResult
 from Backend.database import db
+from Backend.employer_results import public_employer_results
 
 router = APIRouter(prefix="/api/employer", tags=["employer-dashboard"])
 
@@ -43,6 +44,13 @@ async def get_job_details(job_id: str):
         raise HTTPException(status_code=500, detail=f"Error fetching job: {str(e)}")
 
 
+@router.get("/results", summary="List stored Midnight verification results")
+async def list_employer_results():
+    """Return stored proof claims. Raw CV text is not included."""
+    jobs = {job.job_id: job for job in db.jobs.values()}
+    return {"results": public_employer_results(db.list_cv_uploads(), jobs)}
+
+
 @router.get("/proof-result/{upload_id}", summary="Get proof result for CV upload")
 async def get_proof_result(upload_id: str):
     """
@@ -57,27 +65,27 @@ async def get_proof_result(upload_id: str):
     """
     try:
         upload_data = db.get_cv_upload(upload_id)
-        
-        proof_results = upload_data.get("proof_results", [])
-        if not proof_results:
+        jobs = {job.job_id: job for job in db.jobs.values()}
+        rows = public_employer_results([upload_data], jobs)
+        if not rows:
             raise ValueError("No proof results found for this upload")
-        
+
         # Employers receive verification claims only. Candidate credentials and
         # raw CV text stay on the candidate-side upload response.
         return {
             "upload_id": upload_id,
             "proof_results": [
                 {
-                    "job_id": proof["job_id"],
-                    "applicant_verified": proof["applicant_verified"],
-                    "proof_data": proof.get("proof_data"),
+                    "job_id": row["job_id"],
+                    "applicant_verified": row["applicant_verified"],
+                    "proof_data": row["proof_data"],
                     "matching_result": {
-                        "job_id": proof["matching_result"]["job_id"],
-                        "matches": proof["matching_result"]["matches"],
-                        "score": proof["matching_result"]["score"],
+                        "job_id": row["job_id"],
+                        "matches": row["matches"],
+                        "score": row["match_score"],
                     },
                 }
-                for proof in proof_results
+                for row in rows
             ],
         }
     except ValueError as e:

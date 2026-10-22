@@ -3,6 +3,7 @@ export type VerificationStatusName =
   | "failed"
   | "unavailable"
   | "not_configured"
+  | "unknown"
   | null;
 
 export type ProofData = {
@@ -43,6 +44,9 @@ export function verificationLabel(proof: LabeledProof): string {
   }
   if (status === "failed") {
     return "Verification failed";
+  }
+  if (status === "unknown") {
+    return "Outcome unknown after submission. Do not resubmit.";
   }
   if (status === "not_configured") {
     return "Midnight is not configured";

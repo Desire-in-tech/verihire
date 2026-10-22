@@ -11,13 +11,13 @@ export default function DashboardPage() {
         <div className="rounded-[28px] border border-[#204d48] bg-[#101d1d] p-6 text-[#edf3f8]">
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8fe0ca]">Your privacy impact</div>
           <div className="text-3xl font-semibold tracking-[-0.05em]">0 unnecessary disclosures</div>
-          <p className="mt-2 text-[#b6c4d1]">Only verified qualifications were shared with employers.</p>
+          <p className="mt-2 text-[#b6c4d1]">Source documents stay with the candidate. Employers receive a Midnight claim after upload.</p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-4">
           {[
             ["Applications", "6"],
-            ["Verified", "4"],
+            ["Midnight proofs", "None"],
             ["Matched jobs", "12"],
             ["Pending", "2"],
           ].map(([label, value]) => (
@@ -56,7 +56,6 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <Badge tone="green">✓ Employer verified</Badge>
                 <Badge tone="purple">◇ Privacy verification available</Badge>
               </div>
 
