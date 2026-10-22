@@ -78,6 +78,7 @@ function deploymentDeps(
     now: () => "2026-10-21T00:00:01.000Z",
     walletAddress: "mn_addr_undeployed1example",
     nodeUrls: NETWORK_URLS,
+    awaitWalletReady: async () => {},
     construct: async () => ({
       contractAddress: "contract-address",
       signingKey: "signing-key-must-not-be-stored",
@@ -111,6 +112,7 @@ test("an unresolved attempt blocks every later deployment", () => {
 
 test("an existing attempt does not construct or submit", async () => {
   const attempt = tempAttempt();
+  let ready = false;
   let constructed = false;
   let submitted = false;
   try {
@@ -119,6 +121,9 @@ test("an existing attempt does not construct or submit", async () => {
       () =>
         executeDeploymentAttempt(
           deploymentDeps(attempt.path, {
+            awaitWalletReady: async () => {
+              ready = true;
+            },
             construct: async () => {
               constructed = true;
               return { contractAddress: "other", signingKey: "secret" };
@@ -131,6 +136,7 @@ test("an existing attempt does not construct or submit", async () => {
         ),
       DeploymentBlocked,
     );
+    assert.equal(ready, false);
     assert.equal(constructed, false);
     assert.equal(submitted, false);
     assert.equal(readDeployAttempt(attempt.path)?.state, "submission-intended");
@@ -424,6 +430,7 @@ test("corrupt and unreadable records fail closed", async () => {
 test("the network guard runs before construction", async () => {
   const attempt = tempAttempt();
   let constructed = false;
+  let ready = false;
   try {
     await assert.rejects(
       () =>
@@ -432,6 +439,9 @@ test("the network guard runs before construction", async () => {
             network: {
               ...LOCAL_UNDEPLOYED,
               networkId: "preprod",
+            },
+            awaitWalletReady: async () => {
+              ready = true;
             },
             construct: async () => {
               constructed = true;
@@ -449,6 +459,9 @@ test("the network guard runs before construction", async () => {
               ...LOCAL_UNDEPLOYED,
               nodeUrl: "http://127.0.0.1:9945",
             },
+            awaitWalletReady: async () => {
+              ready = true;
+            },
             construct: async () => {
               constructed = true;
               return { contractAddress: "contract-address", signingKey: "key" };
@@ -457,7 +470,78 @@ test("the network guard runs before construction", async () => {
         ),
       /NODE_URL/,
     );
+    assert.equal(ready, false);
     assert.equal(constructed, false);
+    assert.equal(readDeployAttempt(attempt.path), null);
+  } finally {
+    attempt.cleanup();
+  }
+});
+
+test("wallet readiness is awaited before construction and DUST balancing", async () => {
+  const attempt = tempAttempt();
+  const order: string[] = [];
+  try {
+    await executeDeploymentAttempt(
+      deploymentDeps(attempt.path, {
+        awaitWalletReady: async () => {
+          order.push("ready");
+          assert.equal(readDeployAttempt(attempt.path), null);
+        },
+        construct: async () => {
+          order.push("construct");
+          return { contractAddress: "contract-address", signingKey: "key" };
+        },
+        proveAndBalance: async () => {
+          order.push("balance");
+          assert.equal(readDeployAttempt(attempt.path)?.state, "constructed");
+          return ["intent-id", "final-id"];
+        },
+      }),
+    );
+    assert.deepEqual(order, ["ready", "construct", "balance"]);
+  } finally {
+    attempt.cleanup();
+  }
+});
+
+test("a wallet readiness failure stops before construction, balancing, and submission", async () => {
+  const attempt = tempAttempt();
+  let constructed = false;
+  let balanced = false;
+  let submitted = false;
+  let persisted = false;
+  try {
+    await assert.rejects(
+      () =>
+        executeDeploymentAttempt(
+          deploymentDeps(attempt.path, {
+            awaitWalletReady: async () => {
+              throw new Error("wallet synchronization did not complete before DUST balancing");
+            },
+            construct: async () => {
+              constructed = true;
+              return { contractAddress: "contract-address", signingKey: "key" };
+            },
+            proveAndBalance: async () => {
+              balanced = true;
+              return ["final-id"];
+            },
+            persistSigningKey: async () => {
+              persisted = true;
+            },
+            submit: async () => {
+              submitted = true;
+              return "final-id";
+            },
+          }),
+        ),
+      /wallet synchronization did not complete/,
+    );
+    assert.equal(constructed, false);
+    assert.equal(balanced, false);
+    assert.equal(persisted, false);
+    assert.equal(submitted, false);
     assert.equal(readDeployAttempt(attempt.path), null);
   } finally {
     attempt.cleanup();

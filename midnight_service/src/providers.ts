@@ -4,6 +4,7 @@ import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-p
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
+import { assertWalletReady } from "./wallet-ready.js";
 import type {
   MidnightProvider,
   UnboundTransaction,
@@ -199,6 +200,7 @@ export async function buildProviders(env: MidnightEnvironment) {
       walletProvider: walletAndMidnightProvider,
       midnightProvider: walletAndMidnightProvider,
       walletAddress,
+      whenWalletReady: () => assertWalletReady(() => walletContext.wallet.waitForSyncedState()),
       stopWallet: () => walletContext.wallet.stop(),
     };
   } catch (error) {

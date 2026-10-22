@@ -181,6 +181,7 @@ async function main() {
           now: () => new Date().toISOString(),
           walletAddress: providers.walletAddress,
           nodeUrls: network,
+          awaitWalletReady: () => providers.whenWalletReady(),
           construct: async () => {
             const unproven = await createUnprovenDeployTx(providers, {
               compiledContract: compiledContract as never,
