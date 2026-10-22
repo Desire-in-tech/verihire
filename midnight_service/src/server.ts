@@ -27,6 +27,7 @@ import { existsSync } from 'node:fs';
 import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { readEligibility } from './eligibility.js';
+import { readLocalNetworkConfig } from './local-network.js';
 import { buildProviders, readWalletSeed } from './providers.js';
 
 const app = express();
@@ -34,7 +35,6 @@ app.use(express.json());
 
 const PORT = Number(process.env.PORT ?? 7000);
 const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS ?? '';
-const NETWORK_ID = (process.env.NETWORK_ID ?? 'preprod') as 'preprod' | 'undeployed';
 const COMPILED_CONTRACT_DIR = new URL('../managed/verihire', import.meta.url).pathname;
 
 // Lazily connected on first /prove call so `npm run dev` still boots (and
@@ -47,14 +47,15 @@ async function getDeployedContract() {
     throw new Error('CONTRACT_ADDRESS is not set - deploy the contract first with `npm run deploy-contract`.');
   }
   if (!deployedContractPromise) {
+    const network = readLocalNetworkConfig(process.env);
     const providers = await buildProviders({
-      indexerUrl: process.env.INDEXER_URL ?? '',
-      indexerWsUrl: process.env.INDEXER_WS_URL ?? '',
-      proofServerUrl: process.env.PROOF_SERVER_URL ?? 'http://localhost:6300',
-      nodeUrl: process.env.NODE_URL ?? 'wss://rpc.preprod.midnight.network',
+      indexerUrl: network.indexerUrl,
+      indexerWsUrl: network.indexerWsUrl,
+      proofServerUrl: network.proofServerUrl,
+      nodeUrl: network.nodeUrl,
       compiledContractDir: COMPILED_CONTRACT_DIR,
       walletAddress: process.env.WALLET_ADDRESS ?? '',
-      networkId: NETWORK_ID,
+      networkId: network.networkId,
       walletSeed: readWalletSeed(),
       storagePassword: process.env.MIDNIGHT_STORAGE_PASSWORD ?? '',
     });
@@ -65,8 +66,12 @@ async function getDeployedContract() {
       import.meta.url,
     ).href;
     const contractModule = await import(compiledContractModule);
-    const compiledContract = CompiledContract.make('Verihire', contractModule.Contract).pipe(
-      CompiledContract.withCompiledFileAssets(COMPILED_CONTRACT_DIR),
+    // No witnesses: node-server-wallet guide uses withVacantWitnesses.
+    const compiledContract = CompiledContract.withCompiledFileAssets(
+      CompiledContract.withVacantWitnesses(
+        CompiledContract.make('Verihire', contractModule.Contract),
+      ),
+      COMPILED_CONTRACT_DIR,
     );
 
     deployedContractPromise = findDeployedContract(providers as never, {
@@ -78,6 +83,7 @@ async function getDeployedContract() {
 }
 
 app.get('/health', (_req, res) => {
+  const network = readLocalNetworkConfig(process.env);
   res.json({
     status: 'ok',
     contract_configured: Boolean(CONTRACT_ADDRESS),
@@ -85,7 +91,7 @@ app.get('/health', (_req, res) => {
       new URL('../managed/verihire/contract/index.js', import.meta.url),
     ),
     wallet_configured: Boolean(process.env.WALLET_SEED && process.env.MIDNIGHT_STORAGE_PASSWORD),
-    network: NETWORK_ID,
+    network: network.networkId,
   });
 });
 

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import unittest
+from pathlib import Path
 
 import httpx
 
@@ -56,6 +58,21 @@ def _job_001() -> Job:
             certifications=[],
         ),
         verification_status=VerificationStatus.VERIFIED,
+    )
+
+
+def _seed_job(job_id: str) -> Job:
+    path = Path(__file__).resolve().parents[1] / "data" / "seed_jobs.json"
+    payload = json.loads(path.read_text())
+    match = next(job for job in payload["jobs"] if job["job_id"] == job_id)
+    return Job(
+        job_id=match["job_id"],
+        title=match["title"],
+        company=match["company"],
+        description=match["description"],
+        criteria=JobCriteria(**match["criteria"]),
+        verification_status=VerificationStatus(match["verification_status"]),
+        is_active=match.get("is_active", True),
     )
 
 
@@ -262,6 +279,74 @@ class MidnightOutcomeTests(unittest.TestCase):
             self.assertIsNone(proof["eligible"], payload)
             self.assertIsNone(proof["proof_id"], payload)
             self.assertFalse(applicant_verified_from_proof(proof))
+
+    def test_seed_demo_job_reaches_prove_with_circuit_thresholds(self) -> None:
+        client = RecordingClient()
+        client.payload = {
+            "verification_status": "verified",
+            "eligible": True,
+            "proof_id": "tx-demo",
+            "block_height": 2,
+            "message": "Eligible, verification succeeded.",
+        }
+        job = _seed_job("job-004")
+        self.assertEqual(job.title, "Python Backend Developer — Midnight Demo")
+        self.assertEqual(MidnightClient.unsupported_criteria(job), [])
+        proof = _prove(
+            client,
+            job,
+            _candidate(education_level="masters", certifications=[], skills={"python": 3, "postgresql": 1}),
+        )
+        self.assertEqual(len(client.calls), 1)
+        sent = client.calls[0]
+        self.assertEqual(sent["required_python_years"], 2)
+        self.assertIs(sent["require_postgresql"], True)
+        self.assertIs(sent["require_bachelors"], True)
+        self.assertIs(sent["require_aws_cert"], False)
+        self.assertIs(sent["has_bachelors_or_equivalent"], True)
+        self.assertEqual(proof["verification_status"], "verified")
+        self.assertIs(proof["eligible"], True)
+        self.assertTrue(applicant_verified_from_proof(proof))
+
+        client.payload = {
+            "verification_status": "verified",
+            "eligible": False,
+            "proof_id": "tx-demo-no",
+            "block_height": 3,
+        }
+        ineligible = _prove(client, job)
+        self.assertEqual(ineligible["verification_status"], "verified")
+        self.assertIs(ineligible["eligible"], False)
+        self.assertFalse(applicant_verified_from_proof(ineligible))
+
+        client.payload = {
+            "verification_status": "verified",
+            "eligible": 1,
+            "proof_id": "tx-demo-bad",
+        }
+        unknown = _prove(client, job)
+        self.assertEqual(unknown["verification_status"], "unavailable")
+        self.assertIsNone(unknown["eligible"])
+        self.assertFalse(applicant_verified_from_proof(unknown))
+
+    def test_seed_job_001_is_refused_before_http(self) -> None:
+        client = RecordingClient()
+        proof = _prove(client, _seed_job("job-001"))
+        self.assertEqual(client.calls, [])
+        self.assertIsNone(proof["verification_status"])
+        self.assertIsNone(proof["eligible"])
+        self.assertIsNone(proof["proof_id"])
+        self.assertEqual(
+            proof["unsupported_criteria"],
+            [
+                "skill fastapi: 3 years",
+                "postgresql: 2 years required; circuit checks presence only",
+                "skill docker: 2 years",
+                "min_years_experience: 5",
+                "language: English",
+            ],
+        )
+        self.assertFalse(applicant_verified_from_proof(proof))
 
     def test_http_error_cannot_carry_a_positive_eligibility(self) -> None:
         request = httpx.Request("POST", "http://midnight.test/prove")
