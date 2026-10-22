@@ -14,6 +14,7 @@ import httpx
 from Backend.config import get_settings
 from Backend.models import ExtractedCVData, Job, ProofResult
 
+_CONNECTIVITY_TIMEOUT_SECONDS = 3.0
 _UINT16_MAX = 65535
 _BACHELORS_OR_HIGHER = {"bachelors", "masters", "phd"}
 _SUPPORTED_EDUCATION = {"", "none", "bachelors"}
@@ -60,6 +61,49 @@ class MidnightClient:
     @property
     def configured(self) -> bool:
         return bool(self.base_url)
+
+    async def service_health(self) -> dict[str, Any]:
+        """GET the configured Midnight service /health route.
+
+        This check does not call /prove and does not submit a transaction.
+        Failures return a status payload instead of raising.
+        """
+        if not self.configured:
+            return {
+                "midnight_configured": False,
+                "midnight_reachable": False,
+                "midnight_status": "not_configured",
+            }
+        try:
+            async with httpx.AsyncClient(timeout=_CONNECTIVITY_TIMEOUT_SECONDS) as client:
+                response = await client.get(f"{self.base_url}/health")
+                response.raise_for_status()
+                payload = response.json()
+        except (httpx.HTTPError, ValueError):
+            return {
+                "midnight_configured": True,
+                "midnight_reachable": False,
+                "midnight_status": "unreachable",
+            }
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            return {
+                "midnight_configured": True,
+                "midnight_reachable": True,
+                "midnight_status": "unhealthy",
+            }
+        result: dict[str, Any] = {
+            "midnight_configured": True,
+            "midnight_reachable": True,
+            "midnight_status": "ok",
+        }
+        for key in ("contract_configured", "compiled_contract_configured", "wallet_configured"):
+            value = payload.get(key)
+            if isinstance(value, bool):
+                result[key] = value
+        network = payload.get("network")
+        if isinstance(network, str) and network.isidentifier() and len(network) <= 32:
+            result["network"] = network
+        return result
 
     @staticmethod
     def unsupported_criteria(job: Job) -> list[str]:
