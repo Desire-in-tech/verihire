@@ -1,0 +1,27 @@
+Jordan Ellis
+Backend Software Engineer
+
+Summary
+-------
+Backend engineer with 4 years of professional experience building Python
+services. Comfortable owning a system end to end, from API design through
+deployment.
+
+Experience
+----------
+Backend Engineer, Northwind Systems (2022 - present)
+- Built and maintained REST APIs in Python (FastAPI) serving ~2M requests/day.
+- Designed schemas and query optimization in PostgreSQL.
+- Deployed services on AWS (ECS, RDS, S3).
+
+Software Engineer, Delta Apps (2020 - 2022)
+- Worked across a Python/Django backend and a small React frontend.
+- Wrote integration tests and CI pipelines.
+
+Education
+---------
+B.Sc. in Computer Science, State University, 2020
+
+Certifications
+--------------
+AWS Certified Solutions Architect - Associate (2023)

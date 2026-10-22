@@ -1,0 +1,208 @@
+{
+  "info": {
+    "name": "VeriHire API Layer",
+    "description": "Collection for testing VeriHire CV Processing and Employer Dashboard APIs",
+    "version": "1.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8000/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "Get All Jobs",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8000/api/employer/jobs",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "employer", "jobs"]
+        }
+      },
+      "description": "Retrieve list of all active jobs"
+    },
+    {
+      "name": "Get Job Details",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8000/api/employer/jobs/job-001",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "employer", "jobs", "job-001"]
+        }
+      },
+      "description": "Get details for job-001 (Senior Python Developer)"
+    },
+    {
+      "name": "Upload CV - Test 1",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/api/upload-cv",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "upload-cv"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "/path/to/alice_cv.pdf"
+            },
+            {
+              "key": "job_id",
+              "type": "text",
+              "value": "job-001"
+            }
+          ]
+        },
+        "description": "Upload CV PDF for a strong Senior Python Developer candidate"
+      }
+    },
+    {
+      "name": "Upload CV - Test 2",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/api/upload-cv",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "upload-cv"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "/path/to/charlie_cv.pdf"
+            },
+            {
+              "key": "job_id",
+              "type": "text",
+              "value": "job-001"
+            }
+          ]
+        },
+        "description": "Upload CV PDF for an underskilled candidate (should not match Senior role)"
+      }
+    },
+    {
+      "name": "Upload CV - PDF Test",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/api/upload-cv-pdf",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "upload-cv-pdf"]
+        },
+        "description": "Upload a PDF CV file for processing",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "/path/to/sample_cv.pdf"
+            },
+            {
+              "key": "job_id",
+              "type": "text",
+              "value": "job-001"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Upload CV - Test 3",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8000/api/upload-cv",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "upload-cv"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "/path/to/bob_cv.pdf"
+            }
+          ]
+        },
+        "description": "Upload CV PDF that should match Full Stack JS Developer role"
+      }
+    },
+    {
+      "name": "Get CV Upload Result",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8000/api/cv-upload/{{upload_id}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "cv-upload", "{{upload_id}}"]
+        },
+        "description": "Get the results of a CV upload. Replace {{upload_id}} with the ID returned from upload-cv endpoint"
+      }
+    },
+    {
+      "name": "Get Matching Summary",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8000/api/employer/matching-summary/{{upload_id}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "employer", "matching-summary", "{{upload_id}}"]
+        },
+        "description": "Get a dashboard-friendly summary of how the CV matches all jobs"
+      }
+    },
+    {
+      "name": "Get Proof Result",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8000/api/employer/proof-result/{{upload_id}}",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "employer", "proof-result", "{{upload_id}}"]
+        },
+        "description": "Get proof result from Midnight layer for employer verification"
+      }
+    }
+  ]
+}

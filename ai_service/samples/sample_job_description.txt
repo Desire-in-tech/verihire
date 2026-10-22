@@ -1,0 +1,6 @@
+We're looking for a Backend Engineer to join our small platform team.
+
+You should have at least 3 years of experience with Python, and be
+comfortable working with PostgreSQL in production. Experience deploying to
+AWS is required, and an AWS certification is a strong plus. A Bachelor's
+degree in Computer Science or equivalent hands-on experience is expected.
