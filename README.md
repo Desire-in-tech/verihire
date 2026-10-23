@@ -4,7 +4,7 @@ VeriHire matches a PDF CV to a job, then asks a Midnight service for an eligibil
 
 ```text
 browser (Vercel) → Backend API (Render) → AI extraction (Render)
-                                       └→ Midnight service (not publicly deployed)
+                                       └→ Midnight service (local flow tested; live deployment in progress)
 ```
 
 The Midnight contract, wallet client, proof flow, and tests stay in `contract/` and `midnight_service/`. They are not started by the public web deployment.
@@ -13,22 +13,24 @@ The Midnight contract, wallet client, proof flow, and tests stay in `contract/` 
 
 | Capability | Local undeployed stack | Public web deployment |
 | --- | --- | --- |
-| Employer signup, login, and scoped results | Yes, with the API running | Yes, after the API is deployed and `DATABASE_URL` points at Postgres |
-| PDF upload, keyword or Claude extraction, match score | Yes | Yes, after the AI service and shared `AI_SERVICE_TOKEN` are set |
-| Midnight eligibility proof | Yes on the preserved local demo. Tag `verihire-demo-success-2026-10-22` points at commit `22a2a2a18e438f0d8da542395305cab732846bc2` | No. Leave `MIDNIGHT_SERVICE_URL` empty. Status is `not_configured` |
-| Durable employer rows across a restart | Yes, when `DATABASE_URL` or a SQLite file on a persistent disk is set | Only when `DATABASE_URL` is set. Render's free disk is ephemeral |
+| Employer signup, login, and scoped results | Yes, with the API running | Deployed and smoke-tested; API uses the configured PostgreSQL database |
+| PDF upload, keyword extraction, match score | Yes | Deployed and tested with the AI service and shared `AI_SERVICE_TOKEN` configured |
+| Midnight eligibility proof | Tested successfully in the preserved local demo. Tag `verihire-demo-success-2026-10-22` points at commit `22a2a2a18e438f0d8da542395305cab732846bc2` | Live Midnight deployment is still in progress; no public proof-service URL is configured |
+| Durable employer rows across a restart | Yes, when PostgreSQL or a persistent SQLite file is configured | Neon PostgreSQL is configured for the deployed API; database persistence was verified across separate processes |
 
-This repository does not claim that end-to-end Midnight verification works on public Preprod. That has not been deployed or tested. The local demo was one accepted contract deployment and one job-004 verification on an undeployed network. Do not redeploy that contract and do not retry that upload.
+The Midnight contract and proof flow were tested successfully in the local undeployed environment. Live deployment to public Preprod is still in progress, so this README does not claim that public Preprod verification is live. The local demo was one accepted contract deployment and one job-004 verification on an undeployed network. Do not redeploy that contract and do not retry that upload.
 
 ## Deployment URLs
 
-No public frontend, API, or AI URL is recorded here yet. Hosting was not completed in the security-and-persistence change because provider credentials and a free database slot were not both available. Fill these in only after a deployment responds:
+The MVP is deployed and the frontend and service pages have been smoke-tested.
 
-- Frontend (Vercel): not deployed from this change
-- API (Render), `GET /health`: not deployed from this change
-- AI service (Render), `GET /health`: not deployed from this change
+- Frontend (Vercel): https://verihire-navy.vercel.app
+- Backend API (Render): https://verihire-api-lgut.onrender.com — [health check](https://verihire-api-lgut.onrender.com/health)
+- AI service (Render): https://verihire-ai.onrender.com — [health check](https://verihire-ai.onrender.com/health)
 
-`NEXT_PUBLIC_API_URL` is baked into the frontend at build time. Set it to the API origin and rebuild after the API URL exists.
+The live web application is deployed. Midnight's local contract/proof flow has been tested, while public Preprod deployment remains in progress. Frontend screenshots will be added here once they are captured.
+
+`NEXT_PUBLIC_API_URL` is baked into the frontend at build time and should point to `https://verihire-api-lgut.onrender.com`. Rebuild the frontend after changing it.
 
 ## Local development
 
@@ -80,15 +82,13 @@ Set these in the shell, a local untracked `.env`, or the host's environment sett
 
 Midnight wallet variables (`WALLET_SEED`, `MIDNIGHT_STORAGE_PASSWORD`, Blockfrost project URLs) stay in the Midnight service environment. They are not required for the web deployment and must not be committed. See `midnight_service/.env.example` for names only.
 
-## Vercel, Render, and Supabase
+## Vercel, Render, and Neon PostgreSQL
 
 Frontend root is `frontend/`. On Vercel use install `npm ci`, build `npm run build`, and leave the output directory empty so Next.js uses its default. Set `NEXT_PUBLIC_API_URL` in the project environment before the build. The Vercel Hobby plan is for non-commercial personal use. This change does not enable a paid Vercel feature.
 
 `render.yaml` describes two free web services, `verihire-api` and `verihire-ai`. It does not describe the frontend or Midnight. Render's free web instance has 512 MB RAM, spins down after 15 minutes, and has an ephemeral disk. A workspace gets 750 free instance hours per month. Two services awake all month exceed that allowance, so expect spin-down. Free web services cannot receive private-network traffic, so the API calls the AI service over HTTPS with `AI_SERVICE_TOKEN`. Do not add a persistent disk (`$0.25/GB`) or a paid instance. Without a card, Render suspends a workspace that exceeds the free bandwidth or build allowance instead of charging. Do not add a payment method to get past that.
 
-Render free Postgres expires 30 days after creation and is then deleted after a grace period. It is not the store used by this change. The API speaks Postgres through `DATABASE_URL` when that variable starts with `postgres`.
-
-Supabase is the intended durable store. The free organization `Desire-in-tech` already has two active projects, which is the free allowance. This change does not create, pause, or reuse a project. Until a free Postgres URL is supplied, rows on Render's local SQLite file disappear when the free instance restarts or spins down. `/health` reports `persistence` as `sqlite` or `postgres` and does not include a connection string.
+The deployed API uses Neon PostgreSQL through `DATABASE_URL`. A persistence check confirmed that marked test records remained readable from a separate process and were then cleaned up. Keep the database connection string in the hosting provider's environment settings; never commit it. `/health` reports the persistence type without exposing the connection string.
 
 ## AI behavior
 
@@ -98,7 +98,7 @@ With `ANTHROPIC_API_KEY` set, extraction calls Claude and falls back to keywords
 
 ## Midnight status
 
-Midnight is implemented and preserved. Public Preprod infrastructure is not deployed.
+Midnight is implemented and preserved. The local contract/proof flow was tested successfully; public Preprod infrastructure deployment is still in progress.
 
 Preserved on the tagged local demo:
 
