@@ -28,7 +28,21 @@ The MVP is deployed and the frontend and service pages have been smoke-tested.
 - Backend API (Render): https://verihire-api-lgut.onrender.com — [health check](https://verihire-api-lgut.onrender.com/health)
 - AI service (Render): https://verihire-ai.onrender.com — [health check](https://verihire-ai.onrender.com/health)
 
-The live web application is deployed. Midnight's local contract/proof flow has been tested, while public Preprod deployment remains in progress. Frontend screenshots will be added here once they are captured.
+The live web application is deployed. Midnight's local contract/proof flow has been tested, while public Preprod deployment remains in progress.
+
+### Frontend screenshots
+
+Preview the VeriHire frontend below. Select any screenshot to open the full-size image.
+
+<p align="center">
+  <a href="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954883/Screenshot_2026-10-25_215748_i36nqz.png"><img src="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954883/Screenshot_2026-10-25_215748_i36nqz.png" alt="VeriHire frontend screenshot 1" width="32%" /></a>
+  <a href="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954898/Screenshot_2026-10-25_215854_y7ink2.png"><img src="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954898/Screenshot_2026-10-25_215854_y7ink2.png" alt="VeriHire frontend screenshot 2" width="32%" /></a>
+  <a href="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954916/Screenshot_2026-10-25_215937_fhuedm.png"><img src="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954916/Screenshot_2026-10-25_215937_fhuedm.png" alt="VeriHire frontend screenshot 3" width="32%" /></a>
+</p>
+<p align="center">
+  <a href="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954930/Screenshot_2026-10-25_220002_zxugmb.png"><img src="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954930/Screenshot_2026-10-25_220002_zxugmb.png" alt="VeriHire frontend screenshot 4" width="48%" /></a>
+  <a href="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954949/Screenshot_2026-10-25_220018_wyvcva.png"><img src="https://res.cloudinary.com/f7ko7ayw/image/upload/v1792954949/Screenshot_2026-10-25_220018_wyvcva.png" alt="VeriHire frontend screenshot 5" width="48%" /></a>
+</p>
 
 `NEXT_PUBLIC_API_URL` is baked into the frontend at build time and should point to `https://verihire-api-lgut.onrender.com`. Rebuild the frontend after changing it.
 
